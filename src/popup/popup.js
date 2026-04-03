@@ -40,6 +40,11 @@ async function sendMessage(message) {
 
 // ── Initialize ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  // Show version from manifest
+  const manifest = chrome.runtime.getManifest();
+  const appVersion = $('#appVersion');
+  if (appVersion) appVersion.textContent = `v${manifest.version}`;
+
   // Cache the active tab ID immediately — this is the tab the user was on
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) {

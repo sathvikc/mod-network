@@ -123,6 +123,23 @@ Check `PROGRESS.md` for the latest status.
 
 ## Git Conventions
 
-- Prefix: `init:`, `feat(scope):`, `fix(scope):`, `docs:`, `style:`, `refactor:`
+- Prefix: `init:`, `feat(scope):`, `fix(scope):`, `docs:`, `style:`, `refactor:`, `chore:`
 - Scope examples: `manifest`, `storage`, `background`, `popup`, `sandbox`, `content`
 - Keep commits granular — one logical change per commit
+
+## Versioning
+
+**Follows Semantic Versioning (semver)** driven by commit types:
+
+| Commit Type | Version Bump | Example |
+|---|---|---|
+| `fix:` | **Patch** (0.0.X) | Bug fix, typo, error handling |
+| `feat:` | **Minor** (0.X.0) | New feature, new capability |
+| Breaking change | **Major** (X.0.0) | Incompatible API/schema change |
+| `docs:`, `style:`, `chore:`, `refactor:` | No bump | Non-functional changes |
+
+**Version must be updated in TWO places:**
+1. `src/manifest.json` → `"version"` field
+2. Popup reads it automatically via `chrome.runtime.getManifest().version`
+
+**When to bump:** After committing a `fix:` or `feat:` change, update the version in `manifest.json` and commit as `chore: bump version to X.Y.Z`.

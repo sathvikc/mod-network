@@ -57,6 +57,16 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 /**
+ * Re-apply badge when a tab finishes loading (Chrome clears per-tab badge on navigation).
+ */
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (changeInfo.status === 'complete' && await isTabAttached(tabId)) {
+    const { updateIcon } = await import('./debugger-manager.js');
+    await updateIcon(tabId, true);
+  }
+});
+
+/**
  * Handle extension install/update.
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
