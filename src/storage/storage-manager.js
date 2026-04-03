@@ -36,18 +36,22 @@ function createRule(overrides = {}) {
   const id = overrides.id || generateId();
   return {
     id,
+    type: overrides.type || 'AdvancedJS',
     name: overrides.name || 'Untitled Rule',
     enabled: overrides.enabled !== undefined ? overrides.enabled : true,
     match: {
       urlPattern: overrides.match?.urlPattern || '*://*/*',
       resourceTypes: overrides.match?.resourceTypes || ['Document', 'XHR', 'Fetch']
     },
+    // Type-specific configs
     scripts: {
       // User-written JS executed when request is intercepted at Request stage
       onBeforeRequest: overrides.scripts?.onBeforeRequest || null,
       // User-written JS executed when request is intercepted at Response stage
       onResponse: overrides.scripts?.onResponse || null
     },
+    headers: overrides.headers || [], // Array of { name, value, operation: 'set'|'remove'|'append' }
+    redirectUrl: overrides.redirectUrl || '',
     createdAt: overrides.createdAt || now,
     updatedAt: now
   };

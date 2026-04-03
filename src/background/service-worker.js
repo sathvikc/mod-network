@@ -12,6 +12,7 @@ import {
   getRules, saveRule, updateRule, deleteRule, getRule, toggleRule,
   getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab
 } from '../storage/storage-manager.js';
+import { syncDNRRules } from './rule-engine.js';
 
 // ── Event Listeners (top-level registration, MV3 requirement) ──────────
 
@@ -66,6 +67,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 });
 
 /**
+ * Hook into storage changes to synchronize data across the engine.
+ */
+chrome.storage.onChanged.addListener(async (changes, namespace) => {
+  // If rules or global toggle changed in persistent storage, sync DNR
+  if (namespace === 'local' && (changes.modnetwork_rules || changes.modnetwork_global_enabled)) {
+    await syncDNRRules();
+  }
+});
+
+/**
  * Handle extension install/update.
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -112,6 +123,9 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       }
     });
     console.log('[ModNetwork] Test rule created/updated');
+    
+    // Ensure DNR engine is synced with new base rules
+    await syncDNRRules();
   }
 });
 
@@ -119,6 +133,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
  * On service worker startup, sync state.
  */
 syncState();
+syncDNRRules();
 
 // ── Message Handler ────────────────────────────────────────────────────
 

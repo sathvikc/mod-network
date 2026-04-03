@@ -78,6 +78,16 @@
       </div>
 
       <div class="editor-form">
+        <!-- Rule Type -->
+        <div class="form-group">
+          <label class="form-label" for="ruleType">Rule Type</label>
+          <select class="form-input" id="ruleType">
+            <option value="AdvancedJS">Advanced JS (Response Body, Requires Debugger)</option>
+            <option value="ModifyHeader">Modify Header (Fast, Invisible)</option>
+            <option value="Redirect">Redirect URL (Fast, Invisible)</option>
+          </select>
+        </div>
+
         <!-- Rule Name -->
         <div class="form-group">
           <label class="form-label" for="ruleName">Rule Name</label>
@@ -105,13 +115,14 @@
           </div>
         </div>
 
-        <!-- Script Tabs -->
-        <div class="form-group script-section">
+        <!-- ============================================== -->
+        <!-- UI: Advanced JS -->
+        <!-- ============================================== -->
+        <div class="form-group type-section" id="section-AdvancedJS">
           <div class="script-tabs">
             <button class="script-tab active" data-tab="onBeforeRequest">onBeforeRequest</button>
             <button class="script-tab" data-tab="onResponse">onResponse</button>
           </div>
-
           <!-- onBeforeRequest Editor -->
           <div class="script-panel active" id="panel-onBeforeRequest">
             <div class="script-hint">
@@ -123,7 +134,6 @@
                 placeholder="// Modify request before sending&#10;// context.request.headers['X-Custom'] = 'value';&#10;return context.request;"></textarea>
             </div>
           </div>
-
           <!-- onResponse Editor -->
           <div class="script-panel" id="panel-onResponse">
             <div class="script-hint">
@@ -135,6 +145,28 @@
                 placeholder="// Modify response body/headers&#10;// const local = await fetch('http://localhost:3000/header').then(r=>r.text());&#10;// context.response.body = context.response.body.replace('old', local);&#10;return context.response;"></textarea>
             </div>
           </div>
+        </div>
+
+        <!-- ============================================== -->
+        <!-- UI: Modify Header -->
+        <!-- ============================================== -->
+        <div class="form-group type-section" id="section-ModifyHeader" style="display: none;">
+          <div class="script-hint" style="margin-bottom: 10px;">
+            Add, remove, or set headers. This uses Chrome's native engine (Zero performance impact, no banner).
+          </div>
+          <div id="headerList"></div>
+          <button class="btn btn-sm" id="addHeaderBtn" style="margin-top: 10px;">+ Add Header</button>
+        </div>
+
+        <!-- ============================================== -->
+        <!-- UI: Redirect -->
+        <!-- ============================================== -->
+        <div class="form-group type-section" id="section-Redirect" style="display: none;">
+          <div class="script-hint" style="margin-bottom: 10px;">
+            Seamlessly redirect matched requests to a different URL (Zero performance impact, no banner).
+          </div>
+          <label class="form-label" for="redirectUrl">Destination URL</label>
+          <input type="text" class="form-input" id="redirectUrl" placeholder="https://example.com/new-path" autocomplete="off">
         </div>
       </div>
     </main>

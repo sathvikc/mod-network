@@ -9,6 +9,7 @@
 let currentView = 'rules'; // 'rules' | 'editor'
 let editingRuleId = null;   // null = creating new rule
 let currentTabId = null;    // Cache the tab ID at popup open time
+let currentRuleHeaders = []; // Temporary state for modifying headers in UI
 
 // ── DOM References ─────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -198,6 +199,20 @@ function setupEventListeners() {
     }
   });
 
+  // Rule type switcher
+  const ruleTypeSel = $('#ruleType');
+  ruleTypeSel.addEventListener('change', () => {
+    $$('.type-section').forEach(el => el.style.display = 'none');
+    const selected = ruleTypeSel.value;
+    $(`#section-${selected}`).style.display = 'block';
+  });
+
+  // Add header button
+  $('#addHeaderBtn').addEventListener('click', () => {
+    currentRuleHeaders.push({ name: '', value: '', operation: 'set', stage: 'Request' });
+    renderHeaders();
+  });
+
   // Script tab switching
   $$('.script-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -205,8 +220,34 @@ function setupEventListeners() {
       $$('.script-tab').forEach(t => t.classList.remove('active'));
       $$('.script-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
-      $(`#panel-${tabName}`).classList.add('active');
+      $(`#section-AdvancedJS #panel-${tabName}`).classList.add('active');
     });
+  });
+}
+
+function renderHeaders() {
+  const container = $('#headerList');
+  container.innerHTML = '';
+  currentRuleHeaders.forEach((h, index) => {
+    const row = document.createElement('div');
+    row.className = 'header-row';
+    row.style = 'display: flex; gap: 8px; margin-bottom: 8px; align-items: center;';
+    
+    row.innerHTML = `
+      <select class="form-input" style="width: auto; padding: 4px;" onchange="currentRuleHeaders[${index}].stage = this.value">
+        <option value="Request" ${h.stage === 'Request' ? 'selected' : ''}>Req</option>
+        <option value="Response" ${h.stage === 'Response' ? 'selected' : ''}>Res</option>
+      </select>
+      <select class="form-input" style="width: auto; padding: 4px;" onchange="currentRuleHeaders[${index}].operation = this.value; renderHeaders()">
+        <option value="set" ${h.operation === 'set' ? 'selected' : ''}>Set</option>
+        <option value="append" ${h.operation === 'append' ? 'selected' : ''}>Append</option>
+        <option value="remove" ${h.operation === 'remove' ? 'selected' : ''}>Remove</option>
+      </select>
+      <input type="text" class="form-input" placeholder="Header Name" value="${h.name}" oninput="currentRuleHeaders[${index}].name = this.value">
+      ${h.operation !== 'remove' ? `<input type="text" class="form-input" placeholder="Value" value="${h.value}" oninput="currentRuleHeaders[${index}].value = this.value">` : ''}
+      <button class="btn btn-sm btn-danger" style="padding: 4px 8px;" onclick="currentRuleHeaders.splice(${index}, 1); renderHeaders()">X</button>
+    `;
+    container.appendChild(row);
   });
 }
 
@@ -218,6 +259,9 @@ async function openRuleEditor(ruleId) {
   editingRuleId = ruleId;
   const rule = response.rule;
 
+  $('#ruleType').value = rule.type || 'AdvancedJS';
+  $('#ruleType').dispatchEvent(new Event('change'));
+
   ruleName.value = rule.name || '';
   urlPattern.value = rule.match?.urlPattern || '*://*/*';
 
@@ -227,9 +271,13 @@ async function openRuleEditor(ruleId) {
     cb.checked = types.includes(cb.value);
   });
 
-  // Set scripts
+  // Set specific fields
   scriptOnBeforeRequest.value = rule.scripts?.onBeforeRequest || '';
   scriptOnResponse.value = rule.scripts?.onResponse || '';
+  $('#redirectUrl').value = rule.redirectUrl || '';
+  
+  currentRuleHeaders = Array.isArray(rule.headers) ? JSON.parse(JSON.stringify(rule.headers)) : [];
+  renderHeaders();
 
   // Update line numbers
   updateLineNumbers('onBeforeRequest');
@@ -240,10 +288,16 @@ async function openRuleEditor(ruleId) {
 }
 
 function clearEditor() {
+  $('#ruleType').value = 'AdvancedJS';
+  $('#ruleType').dispatchEvent(new Event('change'));
+  
   ruleName.value = '';
   urlPattern.value = '*://*/*';
   scriptOnBeforeRequest.value = '';
   scriptOnResponse.value = '';
+  $('#redirectUrl').value = '';
+  currentRuleHeaders = [];
+  renderHeaders();
 
   // Reset resource types to defaults
   $$('#resourceTypes input[type="checkbox"]').forEach(cb => {
@@ -261,6 +315,7 @@ function clearEditor() {
 }
 
 async function saveCurrentRule() {
+  const type = $('#ruleType').value;
   const name = ruleName.value.trim() || 'Untitled Rule';
   const pattern = urlPattern.value.trim() || '*://*/*';
 
@@ -271,11 +326,15 @@ async function saveCurrentRule() {
 
   const onBeforeRequest = scriptOnBeforeRequest.value.trim() || null;
   const onResponse = scriptOnResponse.value.trim() || null;
+  const redirectUrl = $('#redirectUrl').value.trim();
 
   const ruleData = {
+    type,
     name,
     match: { urlPattern: pattern, resourceTypes },
-    scripts: { onBeforeRequest, onResponse }
+    scripts: { onBeforeRequest, onResponse },
+    redirectUrl,
+    headers: currentRuleHeaders
   };
 
   if (editingRuleId) {
