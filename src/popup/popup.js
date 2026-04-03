@@ -8,6 +8,7 @@
 // ── State ──────────────────────────────────────────────────────
 let currentView = 'rules'; // 'rules' | 'editor'
 let editingRuleId = null;   // null = creating new rule
+let currentTabId = null;    // Cache the tab ID at popup open time
 
 // ── DOM References ─────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -39,6 +40,12 @@ async function sendMessage(message) {
 
 // ── Initialize ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  // Cache the active tab ID immediately — this is the tab the user was on
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab) {
+    currentTabId = tab.id;
+  }
+  
   await initTabStatus();
   await loadRules();
   await loadGlobalToggle();
@@ -48,10 +55,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── Tab Status ─────────────────────────────────────────────────
 async function initTabStatus() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return;
-
-  const response = await sendMessage({ type: 'GET_TAB_STATUS', tabId: tab.id });
+  if (!currentTabId) return;
+  const response = await sendMessage({ type: 'GET_TAB_STATUS', tabId: currentTabId });
   updateTabStatusUI(response.attached);
 }
 
@@ -116,11 +121,34 @@ function renderRules(rules) {
 function setupEventListeners() {
   // Toggle interception on current tab
   toggleBtn.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) return;
+    if (!currentTabId) {
+      console.warn('[ModNetwork Popup] No active tab ID cached');
+      statusText.textContent = 'No tab';
+      return;
+    }
 
-    const response = await sendMessage({ type: 'TOGGLE_TAB', tabId: tab.id });
-    updateTabStatusUI(response.attached);
+    console.log('[ModNetwork Popup] Toggle clicked, tabId:', currentTabId);
+    toggleBtn.disabled = true;
+    statusText.textContent = 'Connecting...';
+    
+    try {
+      const response = await sendMessage({ type: 'TOGGLE_TAB', tabId: currentTabId });
+      console.log('[ModNetwork Popup] Toggle response:', JSON.stringify(response));
+      
+      if (response.error) {
+        statusText.textContent = 'Error!';
+        console.error('[ModNetwork Popup] Toggle failed:', response.error);
+        // Show error briefly
+        setTimeout(() => updateTabStatusUI(response.attached), 2000);
+      } else {
+        updateTabStatusUI(response.attached);
+      }
+    } catch (error) {
+      console.error('[ModNetwork Popup] Toggle error:', error);
+      statusText.textContent = 'Error!';
+    } finally {
+      toggleBtn.disabled = false;
+    }
   });
 
   // Add new rule

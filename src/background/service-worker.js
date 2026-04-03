@@ -114,8 +114,15 @@ async function handleMessage(message, sender) {
   switch (message.type) {
     // ── Debugger Controls ──
     case 'TOGGLE_TAB': {
-      const attached = await toggleTab(message.tabId);
-      return { success: true, attached };
+      try {
+        console.log('[ModNetwork] TOGGLE_TAB for tabId:', message.tabId);
+        const attached = await toggleTab(message.tabId);
+        console.log('[ModNetwork] TOGGLE_TAB result:', attached);
+        return { success: true, attached };
+      } catch (error) {
+        console.error('[ModNetwork] TOGGLE_TAB error:', error);
+        return { success: false, attached: false, error: error.message };
+      }
     }
 
     case 'GET_TAB_STATUS': {
