@@ -10,7 +10,7 @@ import { handleDetach, syncState, toggleTab, isAttached, detachAll } from './deb
 import { handleRequestPaused } from './interceptor.js';
 import {
   getRules, saveRule, updateRule, deleteRule, getRule, toggleRule,
-  getGlobalEnabled, setGlobalEnabled, isTabAttached
+  getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab
 } from '../storage/storage-manager.js';
 
 // ── Event Listeners (top-level registration, MV3 requirement) ──────────
@@ -52,7 +52,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  */
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (await isTabAttached(tabId)) {
-    const { removeAttachedTab } = await import('../storage/storage-manager.js');
     await removeAttachedTab(tabId);
   }
 });
@@ -64,36 +63,46 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   console.log(`[ModNetwork] Installed: ${details.reason}`);
 
   if (details.reason === 'install') {
-    // Set defaults on first install
     await setGlobalEnabled(true);
+  }
 
-    // Create a sample rule to help users get started
+  if (details.reason === 'install' || details.reason === 'update') {
+    // Remove any old example/test rules
+    const existingRules = await getRules();
+    for (const rule of existingRules) {
+      if (rule.name.includes('Example') || rule.name.includes('Test')) {
+        await deleteRule(rule.id);
+      }
+    }
+
+    // Create a working test rule for the test server
+    const responseScript = [
+      '// Fetch replacement header from local dev server',
+      'const localHeader = await fetch("http://localhost:8766/header")',
+      '  .then(r => r.text());',
+      '',
+      '// Replace the header section between comment markers',
+      'context.response.body = context.response.body.replace(',
+      '  /<!-- HEADER_START -->[\\s\\S]*?<!-- HEADER_END -->/', 
+      '  localHeader',
+      ');',
+      '',
+      'return context.response;'
+    ].join('\n');
+
     await saveRule({
-      name: '🔧 Example: Replace Header HTML',
-      enabled: false,
+      name: '🧪 Test: Replace Header on localhost',
+      enabled: true,
       match: {
-        urlPattern: '*://example.com/*',
+        urlPattern: '*://localhost:8765/*',
         resourceTypes: ['Document']
       },
       scripts: {
         onBeforeRequest: null,
-        onResponse: [
-          '// This script runs for each matching response.',
-          '// `context` is provided with: { request, response, tabId, url }',
-          '// Modify context.response and return it.',
-          '//',
-          '// Example: Fetch header HTML from local server and replace',
-          '// const localHeader = await fetch("http://localhost:3000/header")',
-          '//   .then(r => r.text());',
-          '// context.response.body = context.response.body.replace(',
-          '//   /<!-- HEADER_START -->[\\s\\S]*?<!-- HEADER_END -->/',
-          '//   localHeader',
-          '// );',
-          '//',
-          'return context.response;'
-        ].join('\n')
+        onResponse: responseScript
       }
     });
+    console.log('[ModNetwork] Test rule created/updated');
   }
 });
 

@@ -3,6 +3,7 @@
  * 
  * Receives EXECUTE_SCRIPT messages from the service worker via chrome.runtime,
  * forwards them to the sandboxed iframe via postMessage, and relays results back.
+ * Also proxies fetch requests from the sandbox (which has no network access).
  */
 
 const sandboxFrame = document.getElementById('sandbox');
@@ -41,7 +42,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sandboxReady) {
     sendToSandbox();
   } else {
-    // Wait for sandbox to load
     sandboxFrame.addEventListener('load', sendToSandbox, { once: true });
   }
 
@@ -50,11 +50,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /**
- * Listen for results from the sandboxed iframe.
+ * Listen for messages from the sandboxed iframe.
+ * Handles both script results and fetch proxy requests.
  */
-window.addEventListener('message', (event) => {
-  const { messageId, success, result, error } = event.data;
+window.addEventListener('message', async (event) => {
+  const data = event.data;
+  if (!data) return;
 
+  // Handle fetch proxy requests from sandbox
+  if (data.type === 'FETCH_REQUEST') {
+    try {
+      const response = await fetch(data.url, {
+        method: data.options?.method || 'GET',
+        headers: data.options?.headers || {},
+        body: data.options?.body || undefined
+      });
+      const body = await response.text();
+      
+      // Send fetch result back to sandbox
+      sandboxFrame.contentWindow.postMessage({
+        fetchId: data.fetchId,
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        body: body,
+        headers: Object.fromEntries(response.headers.entries())
+      }, '*');
+    } catch (error) {
+      sandboxFrame.contentWindow.postMessage({
+        fetchId: data.fetchId,
+        error: error.message
+      }, '*');
+    }
+    return;
+  }
+
+  // Handle script execution results
+  const { messageId, success, result, error } = data;
   if (!messageId) return;
 
   const sendResponse = pendingRequests.get(messageId);
@@ -62,7 +94,6 @@ window.addEventListener('message', (event) => {
 
   pendingRequests.delete(messageId);
 
-  // Reply directly to the service worker via sendResponse (keeps the channel clean)
   if (success) {
     sendResponse({ result });
   } else {
