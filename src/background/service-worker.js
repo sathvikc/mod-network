@@ -83,7 +83,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       '',
       '// Replace the header section between comment markers',
       'context.response.body = context.response.body.replace(',
-      '  /<!-- HEADER_START -->[\\s\\S]*?<!-- HEADER_END -->/', 
+      '  /<!-- HEADER_START -->[\\s\\S]*?<!-- HEADER_END -->/,',
       '  localHeader',
       ');',
       '',
