@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=360, initial-scale=1">
+  <meta name="viewport" content="width=600, initial-scale=1">
   <title>ModNetwork</title>
   <link rel="stylesheet" href="popup.css">
 </head>
@@ -12,7 +12,7 @@
     <header class="app-header">
       <div class="header-left">
         <div class="logo">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#g1)" stroke-width="2" stroke-linejoin="round"/>
             <path d="M2 17L12 22L22 17" stroke="url(#g2)" stroke-width="2" stroke-linejoin="round"/>
             <path d="M2 12L12 17L22 12" stroke="url(#g3)" stroke-width="2" stroke-linejoin="round"/>
@@ -39,14 +39,103 @@
       </div>
     </header>
 
-    <!-- Rules List (compact) -->
+    <!-- Rules List View -->
     <main class="app-body" id="rulesView">
+      <div class="section-bar">
+        <span class="section-title">Rules</span>
+        <button class="btn btn-sm btn-primary" id="addRuleBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          New Rule
+        </button>
+      </div>
       <div class="rules-list" id="rulesList">
         <!-- Rules rendered here by JS -->
       </div>
       <div class="empty-state" id="emptyState" style="display:none;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
         <p>No rules yet</p>
-        <p class="empty-sub">Open Dashboard to create rules</p>
+        <p class="empty-sub">Create a rule to start intercepting requests</p>
+      </div>
+    </main>
+
+    <!-- Rule Editor View -->
+    <main class="app-body" id="editorView" style="display:none;">
+      <div class="section-bar">
+        <button class="btn btn-sm btn-ghost" id="backBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back
+        </button>
+        <div class="editor-actions">
+          <button class="btn btn-sm btn-danger" id="deleteRuleBtn" style="display:none;">Delete</button>
+          <button class="btn btn-sm btn-primary" id="saveRuleBtn">Save</button>
+        </div>
+      </div>
+
+      <div class="editor-form">
+        <!-- Rule Name -->
+        <div class="form-group">
+          <label class="form-label" for="ruleName">Rule Name</label>
+          <input type="text" class="form-input" id="ruleName" placeholder="e.g., Replace Header HTML" autocomplete="off">
+        </div>
+
+        <!-- URL Pattern -->
+        <div class="form-group">
+          <label class="form-label" for="urlPattern">URL Pattern</label>
+          <input type="text" class="form-input mono" id="urlPattern" placeholder="*://example.com/*" autocomplete="off">
+          <span class="form-hint">Wildcards: * (any chars), ? (one char)</span>
+        </div>
+
+        <!-- Resource Types -->
+        <div class="form-group">
+          <label class="form-label">Resource Types</label>
+          <div class="checkbox-row" id="resourceTypes">
+            <label class="chip-check"><input type="checkbox" value="Document" checked><span>Document</span></label>
+            <label class="chip-check"><input type="checkbox" value="XHR"><span>XHR</span></label>
+            <label class="chip-check"><input type="checkbox" value="Fetch"><span>Fetch</span></label>
+            <label class="chip-check"><input type="checkbox" value="Script"><span>Script</span></label>
+            <label class="chip-check"><input type="checkbox" value="Stylesheet"><span>CSS</span></label>
+            <label class="chip-check"><input type="checkbox" value="Image"><span>Image</span></label>
+            <label class="chip-check"><input type="checkbox" value="Other"><span>Other</span></label>
+          </div>
+        </div>
+
+        <!-- Script Tabs -->
+        <div class="form-group script-section">
+          <div class="script-tabs">
+            <button class="script-tab active" data-tab="onBeforeRequest">onBeforeRequest</button>
+            <button class="script-tab" data-tab="onResponse">onResponse</button>
+          </div>
+
+          <!-- onBeforeRequest Editor -->
+          <div class="script-panel active" id="panel-onBeforeRequest">
+            <div class="script-hint">
+              Modify the request before it's sent. Available: <code>context.request</code> (url, method, headers, postData). Return modified context.
+            </div>
+            <div class="code-editor-wrap">
+              <div class="line-numbers" id="lineNumbers-onBeforeRequest"></div>
+              <textarea class="code-editor" id="script-onBeforeRequest" spellcheck="false" autocomplete="off" autocapitalize="off"
+                placeholder="// Modify request before sending&#10;// context.request.headers['X-Custom'] = 'value';&#10;return context.request;"></textarea>
+            </div>
+          </div>
+
+          <!-- onResponse Editor -->
+          <div class="script-panel" id="panel-onResponse">
+            <div class="script-hint">
+              Modify the response before the browser receives it. Available: <code>context.response</code> (body, headers, statusCode), <code>context.request</code>, <code>fetch()</code>. Return modified context.
+            </div>
+            <div class="code-editor-wrap">
+              <div class="line-numbers" id="lineNumbers-onResponse"></div>
+              <textarea class="code-editor" id="script-onResponse" spellcheck="false" autocomplete="off" autocapitalize="off"
+                placeholder="// Modify response body/headers&#10;// const local = await fetch('http://localhost:3000/header').then(r=>r.text());&#10;// context.response.body = context.response.body.replace('old', local);&#10;return context.response;"></textarea>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -57,13 +146,6 @@
         <span class="toggle-slider"></span>
         <span class="toggle-label">Global</span>
       </label>
-      <button class="btn btn-dashboard" id="openDashboard" title="Open Dashboard">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-        </svg>
-        Dashboard
-      </button>
       <span class="version" id="appVersion"></span>
     </footer>
   </div>
