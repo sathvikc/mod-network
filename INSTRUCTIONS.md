@@ -119,7 +119,41 @@ Scripts should modify and return the context (or `context.request` / `context.re
 
 ## Current State
 
-Check `PROGRESS.md` for the latest status.
+Check `PROGRESS.md` for completed milestones and `BACKLOG.md` for the full backlog details.
+
+**What's working:**
+- Extension loads, popup shows rules, toggle attaches Chrome Debugger
+- CDP Fetch interception pipeline: Request and Response stages
+- User scripts execute in sandboxed iframe with fetch proxy
+- Rule CRUD (create, read, update, delete, toggle)
+- Badge shows ON state, persists through page reloads
+- Test server (`test/server.js`) demonstrates header replacement use case
+
+## Backlog
+
+> See `BACKLOG.md` for full details. Key items below.
+
+### UI / UX
+- [ ] **Dashboard page** — Automa-style: compact popup for quick controls, full-tab page for code editor and complex config
+- [ ] **Theme support** — Light, dark, and auto (system preference). Currently dark-only
+- [ ] **Popup sizing** — Increase default size or make resizable for better code editor UX
+
+### Features
+- [ ] **Import/export rules** — JSON backup and sharing
+- [ ] **Request/response log viewer** — Show intercepted requests and modifications
+- [ ] **Script templates/snippets** — Pre-built transform examples
+- [ ] **Syntax highlighting** — Custom highlighting in script editor (no library)
+- [ ] **Script error display** — Show errors inline in editor
+- [ ] **Breakpoints** — Pause and inspect before continuing
+- [ ] **URL redirect rules** — Simple redirect without writing JS
+- [ ] **Headers-only mode** — Modify headers without touching body (faster)
+- [ ] **Rule ordering/priority** — Control execution order
+- [ ] **Keyboard shortcuts** — Quick-access hotkeys
+
+### Technical Debt
+- [ ] Remove verbose debug logging once stable
+- [ ] Add error boundaries in popup
+- [ ] Only intercept resource types that have matching rules
 
 ## Git Conventions
 
