@@ -14,6 +14,7 @@ Non-urgent improvements to address when time permits.
 ## Features (Future)
 
 - [ ] **Dashboard page**: Open full-tab page for complex config (code editor, logs, settings) — keep popup compact for quick controls (like Automa pattern).
+- [ ] **Profiles**: Group rules into profiles and assign specific profiles to specific tabs vs globally.
 - [ ] **Import/export rules**: JSON export/import for backup and sharing.
 - [ ] **Request/response log viewer**: Show recent intercepted requests and what was modified.
 - [ ] **Script templates/snippets**: Pre-built transform examples users can insert.
