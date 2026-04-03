@@ -6,6 +6,7 @@
  */
 
 import { addAttachedTab, removeAttachedTab, isTabAttached, getAttachedTabs } from '../storage/storage-manager.js';
+import { generateFetchPatterns } from './rule-engine.js';
 
 const CDP_VERSION = '1.3';
 
@@ -28,14 +29,18 @@ async function attachToTab(tabId, patterns = null) {
     console.log(`[ModNetwork] Debugger attached to tab ${tabId}`);
 
     // Enable Fetch domain to intercept requests
-    // We intercept at both Request and Response stages to allow full modification
-    const fetchPatterns = patterns || [
-      { requestStage: 'Request' },
-      { requestStage: 'Response' }
-    ];
+    // Only intercept traffic matching user rules
+    const fetchPatterns = patterns || await generateFetchPatterns();
 
+    // Workaround: if no patterns are provided, CDP intercepts ALL traffic by default.
+    // To literally intercept nothing, we must pass a fake pattern that matches nothing.
+    // However, Chrome expects valid patterns. If there are no rules, we can just detach,
+    // or pass a pattern that realistically hits nothing, e.g. a dummy scheme.
+    // Actually, passing `[]` might result in all traffic being intercepted (or none, depending on Chrome version).
+    // Let's pass `[]` if possible. Wait, the docs say "If not set, all requests will be affected."
+    // We should explicitly set it.
     await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', {
-      patterns: fetchPatterns
+      patterns: fetchPatterns.length > 0 ? fetchPatterns : [{ urlPattern: 'http://255.255.255.255:0/*', requestStage: 'Request' }]
     });
     console.log(`[ModNetwork] Fetch.enable sent for tab ${tabId}`);
 

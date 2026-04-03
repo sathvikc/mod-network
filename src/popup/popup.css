@@ -36,8 +36,8 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
 
   /* Sizing */
-  --popup-width: 440px;
-  --popup-max-height: 580px;
+  --popup-width: 800px;
+  --popup-max-height: 600px;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -58,7 +58,7 @@
 /* ── Base ───────────────────────────────────────────────────── */
 html, body {
   width: var(--popup-width);
-  max-height: var(--popup-max-height);
+  height: var(--popup-max-height);
   overflow: hidden;
   font-family: var(--font-sans);
   font-size: 13px;

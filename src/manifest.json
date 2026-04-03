@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ModNetwork",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Local-only network request/response modifier using Chrome Debugger API. Full control via user-written JavaScript.",
   "permissions": [
     "debugger",
@@ -41,8 +41,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],

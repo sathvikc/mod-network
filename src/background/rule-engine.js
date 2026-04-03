@@ -112,10 +112,54 @@ async function hasAnyMatchingRules(url) {
   return rules.some(rule => rule.enabled && matchesUrl(url, rule.match.urlPattern));
 }
 
+/**
+ * Generate CDP Fetch.RequestPattern array from all enabled rules.
+ * @returns {Promise<Array>} Array of RequestPattern objects
+ */
+async function generateFetchPatterns() {
+  const globalEnabled = await getGlobalEnabled();
+  if (!globalEnabled) return [];
+
+  const rules = await getRules();
+  const patterns = [];
+
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+
+    const urlPattern = rule.match.urlPattern || '*://*/*';
+    const resourceTypes = rule.match.resourceTypes || [];
+
+    // CDP only allows a single resourceType per pattern object.
+    // If no types are selected, we don't intercept anything for this rule.
+    // If we want to intercept all, we'd omit resourceType, but our UI explicitly checks types.
+    const typesToIterate = resourceTypes.length > 0 ? resourceTypes : [undefined];
+
+    for (const resType of typesToIterate) {
+      if (rule.scripts?.onBeforeRequest) {
+        patterns.push({
+          urlPattern,
+          requestStage: 'Request',
+          ...(resType ? { resourceType: resType } : {})
+        });
+      }
+      if (rule.scripts?.onResponse) {
+        patterns.push({
+          urlPattern,
+          requestStage: 'Response',
+          ...(resType ? { resourceType: resType } : {})
+        });
+      }
+    }
+  }
+
+  return patterns;
+}
+
 export {
   patternToRegex,
   matchesUrl,
   matchesResourceType,
   findMatchingRules,
-  hasAnyMatchingRules
+  hasAnyMatchingRules,
+  generateFetchPatterns
 };
