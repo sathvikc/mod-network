@@ -8,6 +8,16 @@
 const sandboxFrame = document.getElementById('sandbox');
 const pendingRequests = new Map();
 
+// Set the sandbox iframe src using chrome.runtime.getURL for proper extension URL resolution
+sandboxFrame.src = chrome.runtime.getURL('sandbox/sandbox.html');
+
+// Wait for sandbox to be ready
+let sandboxReady = false;
+sandboxFrame.addEventListener('load', () => {
+  sandboxReady = true;
+  console.log('[ModNetwork Offscreen] Sandbox iframe loaded');
+});
+
 /**
  * Listen for messages from the service worker.
  */
@@ -16,17 +26,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const { messageId, scriptCode, context } = message;
 
-  // Store the pending request so we can resolve it when sandbox responds
-  pendingRequests.set(messageId, { sendResponse, messageId });
+  // Store the sendResponse callback to reply when sandbox returns
+  pendingRequests.set(messageId, sendResponse);
 
   // Forward to the sandboxed iframe
-  sandboxFrame.contentWindow.postMessage({
-    messageId,
-    scriptCode,
-    context
-  }, '*');
+  const sendToSandbox = () => {
+    sandboxFrame.contentWindow.postMessage({
+      messageId,
+      scriptCode,
+      context
+    }, '*');
+  };
 
-  // Return true to keep the message channel open for async response
+  if (sandboxReady) {
+    sendToSandbox();
+  } else {
+    // Wait for sandbox to load
+    sandboxFrame.addEventListener('load', sendToSandbox, { once: true });
+  }
+
+  // Return true to keep the message channel open for async sendResponse
   return true;
 });
 
@@ -34,22 +53,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * Listen for results from the sandboxed iframe.
  */
 window.addEventListener('message', (event) => {
-  const { messageId, success, result, error, stack } = event.data;
+  const { messageId, success, result, error } = event.data;
 
   if (!messageId) return;
 
-  const pending = pendingRequests.get(messageId);
-  if (!pending) return;
+  const sendResponse = pendingRequests.get(messageId);
+  if (!sendResponse) return;
 
   pendingRequests.delete(messageId);
 
-  // Send result back to service worker
-  chrome.runtime.sendMessage({
-    type: 'SANDBOX_RESULT',
-    messageId,
-    result: success ? result : null,
-    error: success ? null : error
-  });
+  // Reply directly to the service worker via sendResponse (keeps the channel clean)
+  if (success) {
+    sendResponse({ result });
+  } else {
+    sendResponse({ error });
+  }
 });
 
 console.log('[ModNetwork Offscreen] Ready');

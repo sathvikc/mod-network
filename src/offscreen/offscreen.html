@@ -5,8 +5,8 @@
   <title>ModNetwork Offscreen</title>
 </head>
 <body>
-  <!-- Sandboxed iframe where user scripts execute -->
-  <iframe id="sandbox" src="../sandbox/sandbox.html" style="display:none;"></iframe>
+  <!-- Sandboxed iframe is created dynamically with chrome.runtime.getURL -->
+  <iframe id="sandbox" style="display:none;"></iframe>
   <script src="offscreen.js"></script>
 </body>
 </html>

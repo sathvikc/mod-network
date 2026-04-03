@@ -33,30 +33,21 @@ function generateId() {
  */
 function createRule(overrides = {}) {
   const now = Date.now();
+  const id = overrides.id || generateId();
   return {
-    id: generateId(),
+    id,
     name: overrides.name || 'Untitled Rule',
-    enabled: true,
+    enabled: overrides.enabled !== undefined ? overrides.enabled : true,
     match: {
       urlPattern: overrides.match?.urlPattern || '*://*/*',
       resourceTypes: overrides.match?.resourceTypes || ['Document', 'XHR', 'Fetch']
     },
     scripts: {
       // User-written JS executed when request is intercepted at Request stage
-      // Receives `context` with: { request: { url, method, headers, postData } }
-      // Must return modified request or null to pass through
       onBeforeRequest: overrides.scripts?.onBeforeRequest || null,
-
       // User-written JS executed when request is intercepted at Response stage
-      // Receives `context` with: { request, response: { body, headers, statusCode } }
-      // Must return modified response or null to pass through
       onResponse: overrides.scripts?.onResponse || null
     },
-    createdAt: now,
-    updatedAt: now,
-    ...overrides,
-    // Ensure ID and timestamps aren't accidentally overridden with bad values
-    id: overrides.id || generateId(),
     createdAt: overrides.createdAt || now,
     updatedAt: now
   };

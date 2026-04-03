@@ -5,8 +5,10 @@
  * Instead, we use an offscreen document that embeds a sandboxed iframe where
  * eval IS allowed. This module manages that communication pipeline:
  * 
- *   Service Worker → (runtime message) → Offscreen Doc → (postMessage) → Sandbox
- *   Sandbox → (postMessage) → Offscreen Doc → (runtime message response) → Service Worker
+ *   Service Worker → (runtime.sendMessage) → Offscreen Doc → (postMessage) → Sandbox
+ *   Sandbox → (postMessage) → Offscreen Doc → (sendResponse) → Service Worker
+ * 
+ * The offscreen doc uses sendResponse to reply directly, avoiding message loops.
  */
 
 let offscreenDocumentCreated = false;
@@ -21,28 +23,44 @@ async function ensureOffscreenDocument() {
   if (offscreenDocumentCreated) return;
 
   // Check if one already exists
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT']
-  });
+  try {
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT']
+    });
 
-  if (existingContexts.length > 0) {
-    offscreenDocumentCreated = true;
-    return;
+    if (existingContexts.length > 0) {
+      offscreenDocumentCreated = true;
+      return;
+    }
+  } catch (e) {
+    // chrome.runtime.getContexts may not be available in older Chrome
+    console.warn('[ModNetwork] getContexts not available, trying to create offscreen doc');
   }
 
   // Create the offscreen document
-  await chrome.offscreen.createDocument({
-    url: OFFSCREEN_URL,
-    reasons: ['IFRAME_SCRIPTING'],
-    justification: 'Execute user-defined transform scripts in a sandboxed iframe'
-  });
-
-  offscreenDocumentCreated = true;
-  console.log('[ModNetwork] Offscreen document created');
+  try {
+    await chrome.offscreen.createDocument({
+      url: OFFSCREEN_URL,
+      reasons: ['IFRAME_SCRIPTING'],
+      justification: 'Execute user-defined transform scripts in a sandboxed iframe'
+    });
+    offscreenDocumentCreated = true;
+    console.log('[ModNetwork] Offscreen document created');
+  } catch (error) {
+    if (error.message?.includes('Only a single offscreen')) {
+      // Already exists
+      offscreenDocumentCreated = true;
+    } else {
+      throw error;
+    }
+  }
 }
 
 /**
  * Execute a user script in the sandbox.
+ * 
+ * Sends the script to the offscreen doc, which forwards to sandbox iframe.
+ * The offscreen doc replies via sendResponse (no message loop).
  * 
  * @param {string} scriptCode — The user's JavaScript code to execute.
  * @param {Object} context — Data to pass to the script (request, response, etc.)
@@ -51,41 +69,19 @@ async function ensureOffscreenDocument() {
 async function executeScript(scriptCode, context) {
   await ensureOffscreenDocument();
 
-  return new Promise((resolve, reject) => {
-    const messageId = crypto.randomUUID();
-
-    // Set up a one-time listener for the response
-    const listener = (message, sender, sendResponse) => {
-      if (message.type === 'SANDBOX_RESULT' && message.messageId === messageId) {
-        chrome.runtime.onMessage.removeListener(listener);
-        if (message.error) {
-          reject(new Error(message.error));
-        } else {
-          resolve(message.result);
-        }
-        return false;
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(listener);
-
-    // Send the script to the offscreen document for execution
-    chrome.runtime.sendMessage({
-      type: 'EXECUTE_SCRIPT',
-      messageId,
-      scriptCode,
-      context
-    }).catch(error => {
-      chrome.runtime.onMessage.removeListener(listener);
-      reject(error);
-    });
-
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      chrome.runtime.onMessage.removeListener(listener);
-      reject(new Error('Script execution timed out (30s)'));
-    }, 30000);
+  // Send to offscreen doc and wait for sendResponse reply
+  const response = await chrome.runtime.sendMessage({
+    type: 'EXECUTE_SCRIPT',
+    messageId: crypto.randomUUID(),
+    scriptCode,
+    context
   });
+
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+
+  return response?.result || context;
 }
 
 /**

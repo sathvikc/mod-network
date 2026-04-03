@@ -35,6 +35,10 @@ chrome.debugger.onDetach.addListener((source, reason) => {
  * Handle messages from popup, offscreen document, and content scripts.
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // EXECUTE_SCRIPT messages are for the offscreen document, not the service worker.
+  // Let them pass through by not returning true.
+  if (message.type === 'EXECUTE_SCRIPT') return false;
+
   // Handle async responses
   handleMessage(message, sender).then(sendResponse).catch(error => {
     console.error('[ModNetwork] Message handler error:', error);
@@ -164,13 +168,6 @@ async function handleMessage(message, sender) {
     case 'SET_GLOBAL_ENABLED': {
       await setGlobalEnabled(message.enabled);
       return { success: true };
-    }
-
-    // ── Sandbox Results (from offscreen document) ──
-    case 'SANDBOX_RESULT': {
-      // This is handled by the script-bridge listener, not here.
-      // But we acknowledge it to prevent errors.
-      return { acknowledged: true };
     }
 
     default:
