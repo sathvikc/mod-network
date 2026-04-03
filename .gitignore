@@ -1,0 +1,24 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Agent/AI files
+.gemini/
+.agent/
+.agents/
+_agent/
+_agents/
+
+# Build artifacts
+dist/
+build/
