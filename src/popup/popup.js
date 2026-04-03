@@ -1,37 +1,16 @@
 /**
- * Popup Script — UI logic for ModNetwork popup.
+ * Popup Script — Compact UI for quick controls.
  * 
- * Handles rule CRUD, tab toggle, views, and code editor line numbers.
- * Communicates with service worker via chrome.runtime.sendMessage.
+ * Shows rules list with toggles, tab debugger toggle, and "Open Dashboard" button.
+ * All complex editing happens in the dashboard page.
  */
 
 // ── State ──────────────────────────────────────────────────────
-let currentView = 'rules'; // 'rules' | 'editor'
-let editingRuleId = null;   // null = creating new rule
-let currentTabId = null;    // Cache the tab ID at popup open time
+let currentTabId = null;
 
-// ── DOM References ─────────────────────────────────────────────
+// ── DOM Helpers ────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
-
-const rulesView = $('#rulesView');
-const editorView = $('#editorView');
-const rulesList = $('#rulesList');
-const emptyState = $('#emptyState');
-const toggleBtn = $('#toggleBtn');
-const statusDot = $('#statusDot');
-const statusText = $('#statusText');
-const addRuleBtn = $('#addRuleBtn');
-const backBtn = $('#backBtn');
-const saveRuleBtn = $('#saveRuleBtn');
-const deleteRuleBtn = $('#deleteRuleBtn');
-const globalToggle = $('#globalToggle');
-
-// Editor fields
-const ruleName = $('#ruleName');
-const urlPattern = $('#urlPattern');
-const scriptOnBeforeRequest = $('#script-onBeforeRequest');
-const scriptOnResponse = $('#script-onResponse');
 
 // ── Messaging ──────────────────────────────────────────────────
 async function sendMessage(message) {
@@ -40,22 +19,19 @@ async function sendMessage(message) {
 
 // ── Initialize ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  // Show version from manifest
+  // Show version
   const manifest = chrome.runtime.getManifest();
   const appVersion = $('#appVersion');
   if (appVersion) appVersion.textContent = `v${manifest.version}`;
 
-  // Cache the active tab ID immediately — this is the tab the user was on
+  // Cache tab ID
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab) {
-    currentTabId = tab.id;
-  }
-  
+  if (tab) currentTabId = tab.id;
+
   await initTabStatus();
   await loadRules();
   await loadGlobalToggle();
   setupEventListeners();
-  setupCodeEditors();
 });
 
 // ── Tab Status ─────────────────────────────────────────────────
@@ -66,6 +42,9 @@ async function initTabStatus() {
 }
 
 function updateTabStatusUI(attached) {
+  const statusDot = $('#statusDot');
+  const statusText = $('#statusText');
+  const toggleBtn = $('#toggleBtn');
   if (attached) {
     statusDot.classList.add('active');
     statusText.textContent = 'Active';
@@ -85,23 +64,22 @@ async function loadRules() {
 }
 
 function renderRules(rules) {
+  const rulesList = $('#rulesList');
+  const emptyState = $('#emptyState');
   rulesList.innerHTML = '';
 
   if (rules.length === 0) {
     emptyState.style.display = 'flex';
     return;
   }
-
   emptyState.style.display = 'none';
 
   rules.forEach(rule => {
-    const card = document.createElement('div');
-    card.className = `rule-card${rule.enabled ? '' : ' disabled'}`;
-    card.dataset.ruleId = rule.id;
-
-    // Determine which scripts are set
     const hasReq = !!rule.scripts?.onBeforeRequest;
     const hasRes = !!rule.scripts?.onResponse;
+
+    const card = document.createElement('div');
+    card.className = `rule-card${rule.enabled ? '' : ' disabled'}`;
 
     card.innerHTML = `
       <label class="toggle-switch rule-toggle" title="Enable/disable rule">
@@ -124,240 +102,61 @@ function renderRules(rules) {
 
 // ── Event Listeners ────────────────────────────────────────────
 function setupEventListeners() {
-  // Toggle interception on current tab
-  toggleBtn.addEventListener('click', async () => {
-    if (!currentTabId) {
-      console.warn('[ModNetwork Popup] No active tab ID cached');
-      statusText.textContent = 'No tab';
-      return;
-    }
-
-    console.log('[ModNetwork Popup] Toggle clicked, tabId:', currentTabId);
-    toggleBtn.disabled = true;
-    statusText.textContent = 'Connecting...';
-    
+  // Toggle debugger on current tab
+  $('#toggleBtn').addEventListener('click', async () => {
+    if (!currentTabId) return;
+    const btn = $('#toggleBtn');
+    btn.disabled = true;
+    $('#statusText').textContent = 'Connecting...';
     try {
       const response = await sendMessage({ type: 'TOGGLE_TAB', tabId: currentTabId });
-      console.log('[ModNetwork Popup] Toggle response:', JSON.stringify(response));
-      
       if (response.error) {
-        statusText.textContent = 'Error!';
-        console.error('[ModNetwork Popup] Toggle failed:', response.error);
-        // Show error briefly
+        $('#statusText').textContent = 'Error!';
         setTimeout(() => updateTabStatusUI(response.attached), 2000);
       } else {
         updateTabStatusUI(response.attached);
       }
     } catch (error) {
-      console.error('[ModNetwork Popup] Toggle error:', error);
-      statusText.textContent = 'Error!';
+      $('#statusText').textContent = 'Error!';
     } finally {
-      toggleBtn.disabled = false;
+      btn.disabled = false;
     }
   });
 
-  // Add new rule
-  addRuleBtn.addEventListener('click', () => {
-    editingRuleId = null;
-    clearEditor();
-    showView('editor');
-    deleteRuleBtn.style.display = 'none';
-  });
-
-  // Back to rules list
-  backBtn.addEventListener('click', () => {
-    showView('rules');
-    loadRules();
-  });
-
-  // Save rule
-  saveRuleBtn.addEventListener('click', saveCurrentRule);
-
-  // Delete rule
-  deleteRuleBtn.addEventListener('click', deleteCurrentRule);
-
   // Global toggle
-  globalToggle.addEventListener('change', async () => {
-    await sendMessage({ type: 'SET_GLOBAL_ENABLED', enabled: globalToggle.checked });
+  $('#globalToggle').addEventListener('change', async () => {
+    await sendMessage({ type: 'SET_GLOBAL_ENABLED', enabled: $('#globalToggle').checked });
   });
 
-  // Rule list delegation (toggle & edit clicks)
-  rulesList.addEventListener('click', async (e) => {
+  // Open Dashboard
+  $('#openDashboard').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/dashboard.html') });
+    window.close();
+  });
+
+  // Rule list delegation
+  $('#rulesList').addEventListener('click', async (e) => {
     const target = e.target.closest('[data-action]');
     if (!target) return;
 
-    const action = target.dataset.action;
-    const id = target.dataset.id;
-
-    if (action === 'toggle') {
+    if (target.dataset.action === 'toggle') {
       e.stopPropagation();
-      await sendMessage({ type: 'TOGGLE_RULE', ruleId: id });
+      await sendMessage({ type: 'TOGGLE_RULE', ruleId: target.dataset.id });
       await loadRules();
-    } else if (action === 'edit') {
-      await openRuleEditor(id);
+    } else if (target.dataset.action === 'edit') {
+      // Open dashboard with this rule
+      chrome.tabs.create({
+        url: chrome.runtime.getURL(`dashboard/dashboard.html#${target.dataset.id}`)
+      });
+      window.close();
     }
   });
-
-  // Script tab switching
-  $$('.script-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const tabName = tab.dataset.tab;
-      $$('.script-tab').forEach(t => t.classList.remove('active'));
-      $$('.script-panel').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      $(`#panel-${tabName}`).classList.add('active');
-    });
-  });
-}
-
-// ── Editor ─────────────────────────────────────────────────────
-async function openRuleEditor(ruleId) {
-  const response = await sendMessage({ type: 'GET_RULE', ruleId });
-  if (!response.rule) return;
-
-  editingRuleId = ruleId;
-  const rule = response.rule;
-
-  ruleName.value = rule.name || '';
-  urlPattern.value = rule.match?.urlPattern || '*://*/*';
-
-  // Set resource type checkboxes
-  const types = rule.match?.resourceTypes || [];
-  $$('#resourceTypes input[type="checkbox"]').forEach(cb => {
-    cb.checked = types.includes(cb.value);
-  });
-
-  // Set scripts
-  scriptOnBeforeRequest.value = rule.scripts?.onBeforeRequest || '';
-  scriptOnResponse.value = rule.scripts?.onResponse || '';
-
-  // Update line numbers
-  updateLineNumbers('onBeforeRequest');
-  updateLineNumbers('onResponse');
-
-  deleteRuleBtn.style.display = 'inline-flex';
-  showView('editor');
-}
-
-function clearEditor() {
-  ruleName.value = '';
-  urlPattern.value = '*://*/*';
-  scriptOnBeforeRequest.value = '';
-  scriptOnResponse.value = '';
-
-  // Reset resource types to defaults
-  $$('#resourceTypes input[type="checkbox"]').forEach(cb => {
-    cb.checked = ['Document', 'XHR', 'Fetch'].includes(cb.value);
-  });
-
-  updateLineNumbers('onBeforeRequest');
-  updateLineNumbers('onResponse');
-
-  // Show onResponse tab by default (more common use case)
-  $$('.script-tab').forEach(t => t.classList.remove('active'));
-  $$('.script-panel').forEach(p => p.classList.remove('active'));
-  $('[data-tab="onResponse"]').classList.add('active');
-  $('#panel-onResponse').classList.add('active');
-}
-
-async function saveCurrentRule() {
-  const name = ruleName.value.trim() || 'Untitled Rule';
-  const pattern = urlPattern.value.trim() || '*://*/*';
-
-  const resourceTypes = [];
-  $$('#resourceTypes input[type="checkbox"]:checked').forEach(cb => {
-    resourceTypes.push(cb.value);
-  });
-
-  const onBeforeRequest = scriptOnBeforeRequest.value.trim() || null;
-  const onResponse = scriptOnResponse.value.trim() || null;
-
-  const ruleData = {
-    name,
-    match: { urlPattern: pattern, resourceTypes },
-    scripts: { onBeforeRequest, onResponse }
-  };
-
-  if (editingRuleId) {
-    await sendMessage({ type: 'UPDATE_RULE', ruleId: editingRuleId, changes: ruleData });
-  } else {
-    await sendMessage({ type: 'SAVE_RULE', ruleData });
-  }
-
-  showView('rules');
-  await loadRules();
-}
-
-async function deleteCurrentRule() {
-  if (!editingRuleId) return;
-  if (!confirm('Delete this rule?')) return;
-
-  await sendMessage({ type: 'DELETE_RULE', ruleId: editingRuleId });
-  editingRuleId = null;
-  showView('rules');
-  await loadRules();
-}
-
-// ── View Switching ─────────────────────────────────────────────
-function showView(view) {
-  currentView = view;
-  rulesView.style.display = view === 'rules' ? 'block' : 'none';
-  editorView.style.display = view === 'editor' ? 'block' : 'none';
-}
-
-// ── Code Editor Helpers ────────────────────────────────────────
-function setupCodeEditors() {
-  [scriptOnBeforeRequest, scriptOnResponse].forEach(textarea => {
-    const panel = textarea.id.replace('script-', '');
-
-    // Update line numbers on input
-    textarea.addEventListener('input', () => updateLineNumbers(panel));
-    textarea.addEventListener('scroll', () => syncScroll(panel));
-    textarea.addEventListener('keydown', handleTabKey);
-
-    updateLineNumbers(panel);
-  });
-}
-
-function updateLineNumbers(panel) {
-  const textarea = $(`#script-${panel}`);
-  const lineNumbersEl = $(`#lineNumbers-${panel}`);
-  if (!textarea || !lineNumbersEl) return;
-
-  const lineCount = (textarea.value || '').split('\n').length;
-  const lines = [];
-  for (let i = 1; i <= Math.max(lineCount, 6); i++) {
-    lines.push(`<span class="ln">${i}</span>`);
-  }
-  lineNumbersEl.innerHTML = lines.join('');
-}
-
-function syncScroll(panel) {
-  const textarea = $(`#script-${panel}`);
-  const lineNumbersEl = $(`#lineNumbers-${panel}`);
-  if (textarea && lineNumbersEl) {
-    lineNumbersEl.scrollTop = textarea.scrollTop;
-  }
-}
-
-function handleTabKey(e) {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const textarea = e.target;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
-    textarea.selectionStart = textarea.selectionEnd = start + 2;
-
-    // Trigger input event for line numbers
-    textarea.dispatchEvent(new Event('input'));
-  }
 }
 
 // ── Global Toggle ──────────────────────────────────────────────
 async function loadGlobalToggle() {
   const response = await sendMessage({ type: 'GET_GLOBAL_ENABLED' });
-  globalToggle.checked = response.enabled !== false;
+  $('#globalToggle').checked = response.enabled !== false;
 }
 
 // ── Utils ──────────────────────────────────────────────────────

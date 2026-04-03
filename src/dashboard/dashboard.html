@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ModNetwork Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#dg1)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="url(#dg2)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="url(#dg3)" stroke-width="2" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="dg1" x1="2" y1="2" x2="22" y2="12"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+              <linearGradient id="dg2" x1="2" y1="17" x2="22" y2="22"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+              <linearGradient id="dg3" x1="2" y1="12" x2="22" y2="17"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+            </defs>
+          </svg>
+          <div class="logo-text">
+            <span class="logo-name">ModNetwork</span>
+            <span class="logo-version" id="dashVersion"></span>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-view="rules">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+          <span>Rules</span>
+        </button>
+        <button class="nav-item" data-view="editor" id="navEditor" style="display:none;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <span id="navEditorLabel">Edit Rule</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="global-toggle-wrap">
+          <label class="toggle-switch">
+            <input type="checkbox" id="dashGlobalToggle" checked>
+            <span class="toggle-track"></span>
+          </label>
+          <span class="toggle-label">Global</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Rules View -->
+      <div class="view active" id="viewRules">
+        <div class="view-header">
+          <h1>Rules</h1>
+          <button class="btn btn-primary" id="dashAddRule">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            New Rule
+          </button>
+        </div>
+        <div class="rules-grid" id="dashRulesList">
+          <!-- Rules rendered by JS -->
+        </div>
+        <div class="empty-state" id="dashEmptyState" style="display:none;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <p>No rules yet</p>
+          <p class="empty-sub">Create a rule to start intercepting network requests</p>
+          <button class="btn btn-primary" id="dashAddRuleEmpty">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            Create First Rule
+          </button>
+        </div>
+      </div>
+
+      <!-- Rule Editor View -->
+      <div class="view" id="viewEditor">
+        <div class="view-header">
+          <h1 id="editorTitle">New Rule</h1>
+          <div class="editor-header-actions">
+            <button class="btn btn-ghost" id="dashDeleteRule" style="display:none;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Delete
+            </button>
+            <button class="btn btn-primary" id="dashSaveRule">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+              Save Rule
+            </button>
+          </div>
+        </div>
+
+        <div class="editor-layout">
+          <!-- Left: Config -->
+          <div class="editor-config">
+            <div class="form-group">
+              <label class="form-label" for="dashRuleName">Rule Name</label>
+              <input type="text" class="form-input" id="dashRuleName" placeholder="e.g., Replace Header HTML" autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="dashUrlPattern">URL Pattern</label>
+              <input type="text" class="form-input mono" id="dashUrlPattern" placeholder="*://example.com/*" autocomplete="off">
+              <span class="form-hint">Wildcards: * (any chars), ? (one char)</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Resource Types</label>
+              <div class="chip-row" id="dashResourceTypes">
+                <label class="chip-check"><input type="checkbox" value="Document" checked><span>Document</span></label>
+                <label class="chip-check"><input type="checkbox" value="XHR"><span>XHR</span></label>
+                <label class="chip-check"><input type="checkbox" value="Fetch"><span>Fetch</span></label>
+                <label class="chip-check"><input type="checkbox" value="Script"><span>Script</span></label>
+                <label class="chip-check"><input type="checkbox" value="Stylesheet"><span>CSS</span></label>
+                <label class="chip-check"><input type="checkbox" value="Image"><span>Image</span></label>
+                <label class="chip-check"><input type="checkbox" value="Font"><span>Font</span></label>
+                <label class="chip-check"><input type="checkbox" value="Other"><span>Other</span></label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="dashRuleEnabled" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Right: Script Editors -->
+          <div class="editor-scripts">
+            <div class="script-tabs">
+              <button class="script-tab" data-tab="onBeforeRequest">onBeforeRequest</button>
+              <button class="script-tab active" data-tab="onResponse">onResponse</button>
+            </div>
+
+            <div class="script-panel" id="dashPanel-onBeforeRequest">
+              <div class="script-hint">
+                Modify the request before it's sent. Available: <code>context.request</code> (url, method, headers, postData). Return modified context.
+              </div>
+              <div class="code-editor-wrap">
+                <div class="line-numbers" id="dashLineNumbers-onBeforeRequest"></div>
+                <textarea class="code-editor" id="dashScript-onBeforeRequest" spellcheck="false" autocomplete="off" autocapitalize="off"
+                  placeholder="// Modify request before sending&#10;// context.request.headers['X-Custom'] = 'value';&#10;return context.request;"></textarea>
+              </div>
+            </div>
+
+            <div class="script-panel active" id="dashPanel-onResponse">
+              <div class="script-hint">
+                Modify the response before the browser receives it. Available: <code>context.response</code> (body, headers, statusCode), <code>context.request</code>, <code>fetch()</code>. Return modified context.
+              </div>
+              <div class="code-editor-wrap">
+                <div class="line-numbers" id="dashLineNumbers-onResponse"></div>
+                <textarea class="code-editor" id="dashScript-onResponse" spellcheck="false" autocomplete="off" autocapitalize="off"
+                  placeholder="// Modify response body/headers&#10;// const local = await fetch('http://localhost:3000/header').then(r=>r.text());&#10;// context.response.body = context.response.body.replace('old', local);&#10;return context.response;"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
