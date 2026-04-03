@@ -6,7 +6,7 @@
  * worker restarts.
  */
 
-import { handleDetach, syncState, toggleTab, isAttached, detachAll } from './debugger-manager.js';
+import { handleDetach, syncState, toggleTab, isAttached, detachAll, updateIcon } from './debugger-manager.js';
 import { handleRequestPaused } from './interceptor.js';
 import {
   getRules, saveRule, updateRule, deleteRule, getRule, toggleRule,
@@ -61,7 +61,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
  */
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (changeInfo.status === 'complete' && await isTabAttached(tabId)) {
-    const { updateIcon } = await import('./debugger-manager.js');
     await updateIcon(tabId, true);
   }
 });
