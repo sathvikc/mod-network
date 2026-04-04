@@ -153,7 +153,18 @@ async function syncDNRRules() {
         let pattern = matchObj.urlPattern || '*://*/*';
         
         if (matchObj.type === 'regex') {
-          condition.regexFilter = pattern;
+          if (pattern === '*://*/*' || pattern === '<all_urls>') {
+            // If they switched to regex but left the default wildcard string, convert it to a valid regex catch-all
+            condition.regexFilter = '.*';
+          } else {
+            try {
+              new RegExp(pattern);
+              condition.regexFilter = pattern;
+            } catch(e) {
+              console.error(`[RuleEngine] Invalid regex filter: ${pattern}. Skipping DNR rule to prevent engine crash.`);
+              continue;
+            }
+          }
         } else {
           if (pattern !== '*://*/*' && pattern !== '<all_urls>') {
             condition.urlFilter = pattern;
