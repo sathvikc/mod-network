@@ -67,6 +67,20 @@ window.addEventListener('message', async (event) => {
     };
 
     const userFunction = new AsyncFunction('context', 'fetch', scriptCode);
+    
+    // Inject Postman-style APIs
+    context.json = function() {
+      try { return JSON.parse(context.response?.body || '{}'); }
+      catch (e) { return null; }
+    };
+    context.sendJson = function(obj) {
+      if (context.response) context.response.body = JSON.stringify(obj);
+    };
+    context.getRequestHeader = function(name) {
+      const hdrs = context.request?.headers || [];
+      const header = hdrs.find(h => h.name.toLowerCase() === name.toLowerCase());
+      return header ? header.value : null;
+    };
 
     // Execute with the fetch proxy
     const result = await userFunction(context, fetchProxy);

@@ -69,6 +69,15 @@ const LOCAL_HEADER_HTML = `<div class="header" id="global-header" style="backgro
 // ── Start Test Page Server ───────────────────────────────────────
 const testPageServer = http.createServer((req, res) => {
   console.log(`[Test Page] ${req.method} ${req.url}`);
+  
+  // Specifically log headers modified by ModNetwork for easy verification
+  const testHeader = req.headers['x-modnetwork-test'];
+  if (testHeader) {
+    console.log(`  -> 🟢 SUCCESS: Received injected header 'X-ModNetwork-Test: ${testHeader}'`);
+  } else if (req.url === '/') {
+    console.log(`  -> 🔴 WARNING: Did not receive 'X-ModNetwork-Test' header on index load.`);
+  }
+
   res.writeHead(200, { 
     'Content-Type': 'text/html',
     'Access-Control-Allow-Origin': '*'
