@@ -24,10 +24,26 @@
           </svg>
           <span class="logo-text">ModNetwork</span>
         </div>
+        <span class="version" id="appVersion">v0.0.0</span>
       </div>
       <div class="header-right">
+        <div class="global-toggle" title="Enable extension globally">
+            <span class="toggle-label" style="font-size: 11px; opacity: 0.8;">GLOBAL</span>
+            <label style="position:relative; display:inline-block; width: 44px; height: 24px; cursor: pointer;">
+              <input type="checkbox" id="globalToggle" style="opacity: 0; width: 0; height: 0;">
+              <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div style="width: 1px; height: 16px; background: var(--border-default); margin: 0 8px;"></div>
         <div class="tab-status" id="tabStatus">
-          <!-- ModNetwork active indicator handled globally via toggleBtn right now -->
+          <div class="status-indicator">
+            <div id="statusDot" class="status-dot"></div>
+            <span id="statusText">Checking tab...</span>
+          </div>
+          <button id="toggleBtn" class="btn btn-primary" style="margin-left: 12px; font-weight: bold;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Attach API
+          </button>
         </div>
       </div>
     </header>

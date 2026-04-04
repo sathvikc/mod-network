@@ -5,6 +5,7 @@
 // ── State ──────────────────────────────────────────────────────
 let profiles = [];
 let activeProfileId = null;
+let currentTabId = null;
 
 // ── DOM References ─────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -15,6 +16,11 @@ const profileList = $('#profileList');
 const activeProfileName = $('#activeProfileName');
 const profileToggle = $('#profileToggle');
 
+const statusDot = $('#statusDot');
+const statusText = $('#statusText');
+const toggleBtn = $('#toggleBtn');
+const globalToggle = $('#globalToggle');
+
 // ── Messaging ──────────────────────────────────────────────────
 async function sendMessage(message) {
   return chrome.runtime.sendMessage(message);
@@ -22,9 +28,41 @@ async function sendMessage(message) {
 
 // ── Initialize ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  const manifest = chrome.runtime.getManifest();
+  const appVersion = $('#appVersion');
+  if (appVersion) appVersion.textContent = `v${manifest.version}`;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab) currentTabId = tab.id;
+  
+  await initTabStatus();
+  await loadGlobalToggle();
   await loadData();
   setupEventListeners();
 });
+
+async function loadGlobalToggle() {
+  const response = await sendMessage({ type: 'GET_GLOBAL_ENABLED' });
+  globalToggle.checked = response.enabled;
+}
+
+async function initTabStatus() {
+  if (!currentTabId) return;
+  const response = await sendMessage({ type: 'GET_TAB_STATUS', tabId: currentTabId });
+  updateTabUI(response.attached);
+}
+
+function updateTabUI(isAttached) {
+  if (isAttached) {
+    statusDot.className = 'status-dot active';
+    statusText.textContent = 'Debugger Attached';
+    toggleBtn.classList.add('active');
+  } else {
+    statusDot.className = 'status-dot inactive';
+    statusText.textContent = 'API Idle';
+    toggleBtn.classList.remove('active');
+  }
+}
 
 async function loadData(preserveActiveId = null) {
   const res = await sendMessage({ type: 'GET_PROFILES' });
@@ -303,5 +341,17 @@ function setupEventListeners() {
       await saveActiveProfile();
       renderMain();
     });
+  });
+
+  toggleBtn.addEventListener('click', async () => {
+    if (!currentTabId) return;
+    const response = await sendMessage({ type: 'TOGGLE_TAB', tabId: currentTabId });
+    if (response && response.success) {
+      updateTabUI(response.attached);
+    }
+  });
+
+  globalToggle.addEventListener('change', async () => {
+    await sendMessage({ type: 'SET_GLOBAL_ENABLED', enabled: globalToggle.checked });
   });
 }

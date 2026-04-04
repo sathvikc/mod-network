@@ -115,6 +115,20 @@ async function getProfiles() {
           name: "Test Header",
           match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
           headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
+        }),
+        createMod('Redirect', {
+          name: "Test API Redirect",
+          enabled: false, // Disabled by default for clean testing
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/old', resourceTypes: ['XHR', 'Fetch'] },
+          redirectUrl: 'http://localhost:8766/api/new'
+        }),
+        createMod('AdvancedJS', {
+          name: "Local Dev UI Injector",
+          enabled: false, // Disabled by default
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
+          scripts: {
+            onResponse: `// Fetch local dev header from our secondary port\nconst localHtml = await fetch("http://localhost:8766/header").then(r => r.text());\n\n// Inject it into the production page HTML\ncontext.response.body = context.response.body.replace(\n  /<!-- HEADER_START -->[\\\\s\\\\S]*?<!-- HEADER_END -->/,\n  localHtml\n);\n\nreturn context.response;`
+          }
         })
       ]
     });
