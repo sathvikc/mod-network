@@ -119,8 +119,11 @@ function renderMain() {
         </div>
       `;
     } else if (mod.type === 'Redirect') {
+      // For Redirects, we bring the Target URL directly into the dense row for clarity
       rowContent = `
-        <input type="text" class="form-input flex-1 mod-redir" data-index="${index}" value="${mod.redirectUrl || ''}" placeholder="Destination URL">
+        <input type="text" class="form-input mod-url flex-1" data-index="${index}" value="${matchUrl}" placeholder="Source URL (e.g. *://*.old.com/*)" style="width: 140px;">
+        <span style="color: var(--text-tertiary); font-weight: bold; margin: 0 4px;">→</span>
+        <input type="text" class="form-input mod-redir flex-1" data-index="${index}" value="${mod.redirectUrl || ''}" placeholder="Destination URL">
       `;
     } else if (mod.type === 'AdvancedJS') {
       rowContent = `
@@ -143,12 +146,17 @@ function renderMain() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
         <button class="icon-btn mod-submenu-btn" title="Advanced Options">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12h.01M12 6h.01M12 18h.01"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="1"></circle>
+            <circle cx="12" cy="5" r="1"></circle>
+            <circle cx="12" cy="19" r="1"></circle>
+          </svg>
         </button>
       </div>
 
       <div class="submenu-container">
         <div class="submenu-grid">
+          ${mod.type !== 'Redirect' ? `
           <div class="submenu-label">URL Filter</div>
           <div style="display:flex; gap:8px;">
             <select class="form-input mod-url-type" data-index="${index}" style="width:90px;">
@@ -157,9 +165,13 @@ function renderMain() {
             </select>
             <input type="text" class="form-input mod-url flex-1" data-index="${index}" value="${matchUrl}" placeholder="*://*/*">
           </div>
+          ` : `
+          <!-- URL type logic for redirect without the input since it's on the main row -->
+          <input type="hidden" class="mod-url-type" value="${mod.match?.type || 'wildcard'}">
+          `}
 
           <div class="submenu-label">Description</div>
-          <input type="text" class="form-input" data-index="${index}" value="${mod.name || ''}" placeholder="Rule notes...">
+          <input type="text" class="form-input mod-desc" data-index="${index}" value="${mod.name || ''}" placeholder="Rule notes...">
 
           ${submenuContent}
         </div>

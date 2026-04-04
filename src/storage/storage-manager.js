@@ -105,7 +105,24 @@ async function getProfiles() {
     return initialProfiles;
   }
   
-  return result[STORAGE_KEYS.PROFILES] || [];
+  let profiles = result[STORAGE_KEYS.PROFILES] || [];
+  
+  if (profiles.length === 0) {
+    const defaultProfile = createProfile({
+      name: "Demo Workspace",
+      mods: [
+        createMod('ModifyHeader', {
+          name: "Test Header",
+          match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
+          headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
+        })
+      ]
+    });
+    profiles = [defaultProfile];
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  }
+  
+  return profiles;
 }
 
 /**

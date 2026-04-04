@@ -10,9 +10,22 @@ function patternToRegex(pattern) {
   return new RegExp('^' + regex + '$', 'i');
 }
 
-function matchesUrl(url, pattern) {
+function matchesUrl(url, matchObj) {
+  let pattern = matchObj?.urlPattern || '*://*/*';
+  if (matchObj?.type === 'regex') {
+    try {
+      return new RegExp(pattern, 'i').test(url);
+    } catch (e) {
+      console.error(`[RuleEngine] Invalid Regex for rule: ${pattern}`, e);
+      return false;
+    }
+  }
+  
   try { return patternToRegex(pattern).test(url); }
-  catch (e) { return false; }
+  catch (e) {
+    console.error(`[RuleEngine] Invalid Wildcard for rule: ${pattern}`, e);
+    return false;
+  }
 }
 
 function matchesResourceType(resourceType, allowedTypes) {
@@ -33,17 +46,15 @@ async function findMatchingRules(url, resourceType, stage) {
   for (const profile of profiles) {
     if (!profile.enabled) continue;
 
-    // A profile matches if ANY of its filters match the request
-    const filterMatch = profile.filters.some(f => 
-      matchesUrl(url, f.urlPattern) && matchesResourceType(resourceType, f.resourceTypes)
-    );
-
-    if (filterMatch) {
-      for (const mod of profile.mods) {
-        if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
-        if (stage === 'Request' && !mod.scripts?.onBeforeRequest) continue;
-        if (stage === 'Response' && !mod.scripts?.onResponse) continue;
-        
+    for (const mod of profile.mods) {
+      if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
+      if (stage === 'Request' && !mod.scripts?.onBeforeRequest) continue;
+      if (stage === 'Response' && !mod.scripts?.onResponse) continue;
+      
+      const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
+      
+      if (matchesUrl(url, matchObj) && matchesResourceType(resourceType, matchObj.resourceTypes)) {
+        console.log(`[RuleEngine] Match identified: Profile [${profile.name}] -> Mod [${mod.name || 'Script'}] for URL ${url}`);
         matchingMods.push(mod);
       }
     }
@@ -62,17 +73,18 @@ async function hasAnyMatchingRules(url) {
   const profiles = await getProfiles();
   for (const profile of profiles) {
     if (!profile.enabled) continue;
-    const hasJsMods = profile.mods.some(m => m.enabled && m.type === 'AdvancedJS');
-    if (!hasJsMods) continue;
-
-    const filterMatch = profile.filters.some(f => matchesUrl(url, f.urlPattern));
-    if (filterMatch) return true;
+    
+    for (const mod of profile.mods) {
+      if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
+      const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
+      if (matchesUrl(url, matchObj)) return true;
+    }
   }
   return false;
 }
 
 /**
- * Generate CDP Fetch.RequestPattern array for the Debugger API based on Profile filters.
+ * Generate CDP Fetch.RequestPattern array for the Debugger API based on Profile rules.
  */
 async function generateFetchPatterns() {
   const globalEnabled = await getGlobalEnabled();
@@ -83,15 +95,16 @@ async function generateFetchPatterns() {
 
   for (const profile of profiles) {
     if (!profile.enabled) continue;
-    const activeJsMods = profile.mods.filter(m => m.enabled && m.type === 'AdvancedJS');
-    if (activeJsMods.length === 0) continue;
-
-    let wantsRequest = activeJsMods.some(m => m.scripts?.onBeforeRequest);
-    let wantsResponse = activeJsMods.some(m => m.scripts?.onResponse);
-
-    for (const filter of profile.filters) {
-      const urlPattern = filter.urlPattern || '*://*/*';
-      const resourceTypes = filter.resourceTypes || [];
+    
+    for (const mod of profile.mods) {
+      if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
+      
+      let wantsRequest = !!mod.scripts?.onBeforeRequest;
+      let wantsResponse = !!mod.scripts?.onResponse;
+      
+      const matchObj = mod.match || { urlPattern: '*://*/*', resourceTypes: [] };
+      const urlPattern = matchObj.urlPattern;
+      const resourceTypes = matchObj.resourceTypes || [];
       const typesToIterate = resourceTypes.length > 0 ? resourceTypes : [undefined];
 
       for (const resType of typesToIterate) {
@@ -105,6 +118,7 @@ async function generateFetchPatterns() {
     }
   }
 
+  console.log(`[RuleEngine] Generated ${patterns.length} Fetch patterns for Debugger SDK`);
   return patterns;
 }
 
@@ -130,50 +144,55 @@ async function syncDNRRules() {
     for (const profile of profiles) {
       if (!profile.enabled) continue;
 
-      // Group condition logic: a DNR rule can only have ONE urlFilter condition. 
-      // If a Profile has multiple filters, we must duplicate the DNR action for each filter!
-      const profileFilters = profile.filters && profile.filters.length > 0 ? profile.filters : [{ urlPattern: '*://*/*', resourceTypes: [] }];
-
       for (const mod of profile.mods) {
         if (!mod.enabled || mod.type === 'AdvancedJS') continue;
 
-        for (const filter of profileFilters) {
-          const condition = {};
-          if (filter.urlPattern && filter.urlPattern !== '*://*/*' && filter.urlPattern !== '<all_urls>') {
-            condition.urlFilter = filter.urlPattern;
+        const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
+        const condition = {};
+        
+        let pattern = matchObj.urlPattern || '*://*/*';
+        
+        if (matchObj.type === 'regex') {
+          condition.regexFilter = pattern;
+        } else {
+          if (pattern !== '*://*/*' && pattern !== '<all_urls>') {
+            condition.urlFilter = pattern;
           }
-          
-          if (filter.resourceTypes && filter.resourceTypes.length > 0) {
-            condition.resourceTypes = [...new Set(filter.resourceTypes.map(mapResourceType))];
-          }
+        }
+        
+        if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
+          condition.resourceTypes = [...new Set(matchObj.resourceTypes.map(mapResourceType))];
+        }
 
-          if (mod.type === 'ModifyHeader' && mod.headers && mod.headers.length > 0) {
-            const requestHeaders = [];
-            const responseHeaders = [];
-            
-            mod.headers.forEach(h => {
-              const headerRule = { header: h.name, operation: h.operation };
-              if (h.operation !== 'remove') headerRule.value = h.value;
-              if (h.stage === 'Request') requestHeaders.push(headerRule);
-              else responseHeaders.push(headerRule);
-            });
-            
-            if (requestHeaders.length > 0 || responseHeaders.length > 0) {
-              const action = { type: 'modifyHeaders' };
-              if (requestHeaders.length > 0) action.requestHeaders = requestHeaders;
-              if (responseHeaders.length > 0) action.responseHeaders = responseHeaders;
-              addRules.push({ id: dnrId++, priority: 1, action, condition });
-            }
-          } else if (mod.type === 'Redirect' && mod.redirectUrl) {
-            addRules.push({ id: dnrId++, priority: 2, action: { type: 'redirect', redirect: { url: mod.redirectUrl } }, condition });
+        if (mod.type === 'ModifyHeader' && mod.headers && mod.headers.length > 0) {
+          const requestHeaders = [];
+          const responseHeaders = [];
+          
+          mod.headers.forEach(h => {
+            const headerRule = { header: h.name, operation: h.operation };
+            if (h.operation !== 'remove') headerRule.value = h.value;
+            if (h.stage === 'Request') requestHeaders.push(headerRule);
+            else responseHeaders.push(headerRule);
+          });
+          
+          if (requestHeaders.length > 0 || responseHeaders.length > 0) {
+            const action = { type: 'modifyHeaders' };
+            if (requestHeaders.length > 0) action.requestHeaders = requestHeaders;
+            if (responseHeaders.length > 0) action.responseHeaders = responseHeaders;
+            addRules.push({ id: dnrId++, priority: 1, action, condition });
           }
+        } else if (mod.type === 'Redirect' && mod.redirectUrl) {
+          addRules.push({ id: dnrId++, priority: 2, action: { type: 'redirect', redirect: { url: mod.redirectUrl } }, condition });
         }
       }
     }
   }
 
   await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds, addRules });
-  console.log(`[ModNetwork] DNR Synced: Removed ${removeRuleIds.length}, Added ${addRules.length}`);
+  console.log(`[ModNetwork] DNR Engine Synced: Removed ${removeRuleIds.length}, Added ${addRules.length} rules`);
+  if (addRules.length > 0) {
+    console.log(`[ModNetwork] Active DNR Compilation: `, addRules);
+  }
 }
 
 export {
