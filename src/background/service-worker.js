@@ -9,7 +9,7 @@
 import { handleDetach, syncState, toggleTab, isAttached, detachAll, updateIcon } from './debugger-manager.js';
 import { handleRequestPaused } from './interceptor.js';
 import {
-  getRules, saveRule, updateRule, deleteRule, getRule, toggleRule,
+  getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
   getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab
 } from '../storage/storage-manager.js';
 import { syncDNRRules } from './rule-engine.js';
@@ -71,7 +71,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
  */
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
   // If rules or global toggle changed in persistent storage, sync DNR
-  if (namespace === 'local' && (changes.modnetwork_rules || changes.modnetwork_global_enabled)) {
+  if (namespace === 'local' && (changes.modnetwork_profiles || changes.modnetwork_global_enabled)) {
     await syncDNRRules();
   }
 });
@@ -87,11 +87,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   }
 
   if (details.reason === 'install' || details.reason === 'update') {
-    // Remove any old example/test rules
-    const existingRules = await getRules();
-    for (const rule of existingRules) {
-      if (rule.name.includes('Example') || rule.name.includes('Test')) {
-        await deleteRule(rule.id);
+    // Remove any old example/test profiles
+    const existingProfiles = await getProfiles();
+    for (const profile of existingProfiles) {
+      if (profile.name.includes('Example') || profile.name.includes('Test') || profile.name.includes('Legacy')) {
+        await deleteProfile(profile.id);
       }
     }
 
@@ -110,19 +110,23 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       'return context.response;'
     ].join('\n');
 
-    await saveRule({
-      name: '🧪 Test: Replace Header on localhost',
+    await saveProfile({
+      name: '🧪 Test Profile (Localhost)',
       enabled: true,
-      match: {
-        urlPattern: '*://localhost:8765/*',
-        resourceTypes: ['Document']
-      },
-      scripts: {
-        onBeforeRequest: null,
-        onResponse: responseScript
-      }
+      filters: [{ urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] }],
+      mods: [
+        {
+          type: 'AdvancedJS',
+          name: 'Replace Header HTML',
+          enabled: true,
+          scripts: {
+            onBeforeRequest: null,
+            onResponse: responseScript
+          }
+        }
+      ]
     });
-    console.log('[ModNetwork] Test rule created/updated');
+    console.log('[ModNetwork] Test profile created/updated');
     
     // Ensure DNR engine is synced with new base rules
     await syncDNRRules();
@@ -168,35 +172,30 @@ async function handleMessage(message, sender) {
       return { success: true };
     }
 
-    // ── Rule CRUD ──
-    case 'GET_RULES': {
-      const rules = await getRules();
-      return { rules };
+    // ── Profile CRUD ──
+    case 'GET_PROFILES': {
+      const profiles = await getProfiles();
+      return { profiles };
     }
 
-    case 'GET_RULE': {
-      const rule = await getRule(message.ruleId);
-      return { rule };
+    case 'SAVE_PROFILE': {
+      const profile = await saveProfile(message.profileData);
+      return { profile };
     }
 
-    case 'SAVE_RULE': {
-      const rule = await saveRule(message.ruleData);
-      return { rule };
+    case 'UPDATE_PROFILE': {
+      const profile = await updateProfile(message.profileId, message.changes);
+      return { profile };
     }
 
-    case 'UPDATE_RULE': {
-      const rule = await updateRule(message.ruleId, message.changes);
-      return { rule };
+    case 'DELETE_PROFILE': {
+      await deleteProfile(message.profileId);
+      return { success: true };
     }
 
-    case 'DELETE_RULE': {
-      const success = await deleteRule(message.ruleId);
-      return { success };
-    }
-
-    case 'TOGGLE_RULE': {
-      const rule = await toggleRule(message.ruleId);
-      return { rule };
+    case 'TOGGLE_PROFILE': {
+      await toggleProfile(message.profileId);
+      return { success: true };
     }
 
     // ── Global State ──

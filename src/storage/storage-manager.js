@@ -1,23 +1,21 @@
 /**
- * StorageManager — Abstraction over chrome.storage for rule CRUD and session state.
+ * StorageManager — Abstraction over chrome.storage for Profile CRUD and session state.
  * 
- * Rules are stored in chrome.storage.local (persistent).
+ * Profiles are stored in chrome.storage.local (persistent).
  * Session state (attached tabs, etc.) is stored in chrome.storage.session (ephemeral).
  */
 
 const STORAGE_KEYS = {
-  RULES: 'modnetwork_rules',
+  PROFILES: 'modnetwork_profiles',
   GLOBAL_ENABLED: 'modnetwork_global_enabled'
 };
 
 const SESSION_KEYS = {
-  ATTACHED_TABS: 'modnetwork_attached_tabs',
-  TAB_RULES: 'modnetwork_tab_rules'
+  ATTACHED_TABS: 'modnetwork_attached_tabs'
 };
 
 /**
- * Generate a unique ID for a rule.
- * Uses crypto.randomUUID if available, falls back to timestamp + random.
+ * Generate a unique ID.
  */
 function generateId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -27,195 +25,219 @@ function generateId() {
 }
 
 /**
- * Create a new rule with defaults.
- * @param {Object} overrides — Fields to set on the rule.
- * @returns {Object} Complete rule object.
+ * Create a new Profile with defaults.
+ * @param {Object} overrides 
+ * @returns {Object} Complete profile object.
  */
-function createRule(overrides = {}) {
+function createProfile(overrides = {}) {
   const now = Date.now();
-  const id = overrides.id || generateId();
   return {
-    id,
-    type: overrides.type || 'AdvancedJS',
-    name: overrides.name || 'Untitled Rule',
+    id: overrides.id || generateId(),
+    name: overrides.name || 'Untitled Profile',
+    color: overrides.color || 'var(--accent-primary)',
     enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-    match: {
-      urlPattern: overrides.match?.urlPattern || '*://*/*',
-      resourceTypes: overrides.match?.resourceTypes || ['Document', 'XHR', 'Fetch']
-    },
-    // Type-specific configs
-    scripts: {
-      // User-written JS executed when request is intercepted at Request stage
-      onBeforeRequest: overrides.scripts?.onBeforeRequest || null,
-      // User-written JS executed when request is intercepted at Response stage
-      onResponse: overrides.scripts?.onResponse || null
-    },
-    headers: overrides.headers || [], // Array of { name, value, operation: 'set'|'remove'|'append' }
-    redirectUrl: overrides.redirectUrl || '',
+    filters: overrides.filters || [
+      { urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] }
+    ],
+    mods: overrides.mods || [],
     createdAt: overrides.createdAt || now,
     updatedAt: now
   };
 }
 
+/**
+ * Create a new Mod with defaults.
+ */
+function createMod(type, overrides = {}) {
+  const now = Date.now();
+  const base = {
+    id: overrides.id || generateId(),
+    type: type, // 'ModifyHeader', 'Redirect', 'AdvancedJS'
+    enabled: overrides.enabled !== undefined ? overrides.enabled : true,
+    createdAt: overrides.createdAt || now,
+    updatedAt: now
+  };
+
+  if (type === 'AdvancedJS') {
+    base.name = overrides.name || 'Advanced JS Script';
+    base.scripts = {
+      onBeforeRequest: overrides.scripts?.onBeforeRequest || null,
+      onResponse: overrides.scripts?.onResponse || null
+    };
+  } else if (type === 'ModifyHeader') {
+    // Array of { name, value, operation: 'set'|'remove'|'append', stage: 'Request'|'Response' }
+    base.headers = overrides.headers || [];
+  } else if (type === 'Redirect') {
+    base.redirectUrl = overrides.redirectUrl || '';
+  }
+
+  return base;
+}
+
 // ── Persistent Storage (chrome.storage.local) ──────────────────────────
 
 /**
- * Get all rules from persistent storage.
- * @returns {Promise<Array>} Array of rule objects.
+ * Get all profiles.
  */
-async function getRules() {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.RULES);
-  return result[STORAGE_KEYS.RULES] || [];
+async function getProfiles() {
+  let result = await chrome.storage.local.get([STORAGE_KEYS.PROFILES, 'modnetwork_rules']);
+  
+  // Migration logic: If old rules exist but no profiles, wrap them in a profile
+  if (!result[STORAGE_KEYS.PROFILES] && result['modnetwork_rules']) {
+    console.log('[ModNetwork] Migrating legacy rules to Profiles framework...');
+    const legacyRules = result['modnetwork_rules'];
+    
+    // Group all rules into a single default profile
+    const migratedProfile = createProfile({
+      name: "Legacy Rules",
+      filters: [{ urlPattern: '*://*/*', resourceTypes: [] }],
+      mods: legacyRules.map(r => {
+        // Legacy rules had match inside the rule itself.
+        // We'll just map them as best we can. 
+        // For accurate migration, AdvancedJS would need custom handling, but we are in alpha.
+        return createMod(r.type || 'AdvancedJS', r);
+      })
+    });
+    
+    const initialProfiles = [migratedProfile];
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: initialProfiles });
+    // Keep old keys for now just in case, but we read from PROFILES
+    return initialProfiles;
+  }
+  
+  return result[STORAGE_KEYS.PROFILES] || [];
 }
 
 /**
- * Save a new rule to storage.
- * @param {Object} ruleData — Rule fields (will be merged with defaults).
- * @returns {Promise<Object>} The created rule.
+ * Save a new profile.
  */
-async function saveRule(ruleData) {
-  const rules = await getRules();
-  const rule = createRule(ruleData);
-  rules.push(rule);
-  await chrome.storage.local.set({ [STORAGE_KEYS.RULES]: rules });
-  return rule;
+async function saveProfile(profileData) {
+  const profiles = await getProfiles();
+  const profile = createProfile(profileData);
+  profiles.push(profile);
+  await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  return profile;
 }
 
 /**
- * Update an existing rule by ID.
- * @param {string} id — Rule ID.
- * @param {Object} changes — Fields to update.
- * @returns {Promise<Object|null>} Updated rule or null if not found.
+ * Update a profile.
  */
-async function updateRule(id, changes) {
-  const rules = await getRules();
-  const index = rules.findIndex(r => r.id === id);
+async function updateProfile(id, changes) {
+  const profiles = await getProfiles();
+  const index = profiles.findIndex(p => p.id === id);
   if (index === -1) return null;
 
-  // Merge changes, preserving nested objects
-  const existing = rules[index];
-  const updated = {
-    ...existing,
-    ...changes,
-    match: { ...existing.match, ...(changes.match || {}) },
-    scripts: { ...existing.scripts, ...(changes.scripts || {}) },
-    updatedAt: Date.now()
-  };
-  rules[index] = updated;
-  await chrome.storage.local.set({ [STORAGE_KEYS.RULES]: rules });
-  return updated;
+  const existing = profiles[index];
+  profiles[index] = { ...existing, ...changes, updatedAt: Date.now() };
+
+  await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  return profiles[index];
 }
 
 /**
- * Delete a rule by ID.
- * @param {string} id — Rule ID.
- * @returns {Promise<boolean>} True if deleted, false if not found.
+ * Delete a profile.
  */
-async function deleteRule(id) {
-  const rules = await getRules();
-  const filtered = rules.filter(r => r.id !== id);
-  if (filtered.length === rules.length) return false;
-  await chrome.storage.local.set({ [STORAGE_KEYS.RULES]: filtered });
-  return true;
+async function deleteProfile(id) {
+  let profiles = await getProfiles();
+  const originalLength = profiles.length;
+  profiles = profiles.filter(p => p.id !== id);
+  if (profiles.length < originalLength) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  }
 }
 
 /**
- * Get a single rule by ID.
- * @param {string} id — Rule ID.
- * @returns {Promise<Object|null>} Rule or null.
+ * Toggle profile status safely.
  */
-async function getRule(id) {
-  const rules = await getRules();
-  return rules.find(r => r.id === id) || null;
+async function toggleProfile(id) {
+  const profiles = await getProfiles();
+  const index = profiles.findIndex(p => p.id === id);
+  if (index !== -1) {
+    profiles[index].enabled = !profiles[index].enabled;
+    profiles[index].updatedAt = Date.now();
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  }
 }
 
-/**
- * Toggle a rule's enabled state.
- * @param {string} id — Rule ID.
- * @returns {Promise<Object|null>} Updated rule or null.
- */
-async function toggleRule(id) {
-  const rule = await getRule(id);
-  if (!rule) return null;
-  return updateRule(id, { enabled: !rule.enabled });
-}
+// ── Global State ───────────────────────────────────────────────────────
 
 /**
- * Get global enabled state.
- * @returns {Promise<boolean>}
+ * Get the master on/off switch for the extension interception engine.
  */
 async function getGlobalEnabled() {
   const result = await chrome.storage.local.get(STORAGE_KEYS.GLOBAL_ENABLED);
-  return result[STORAGE_KEYS.GLOBAL_ENABLED] !== false; // default true
+  return result[STORAGE_KEYS.GLOBAL_ENABLED] !== false; // Default true if not set
 }
 
 /**
- * Set global enabled state.
- * @param {boolean} enabled
+ * Set the master kill switch state.
  */
 async function setGlobalEnabled(enabled) {
-  await chrome.storage.local.set({ [STORAGE_KEYS.GLOBAL_ENABLED]: enabled });
+  await chrome.storage.local.set({ [STORAGE_KEYS.GLOBAL_ENABLED]: !!enabled });
+  return !!enabled;
 }
 
-// ── Session Storage (chrome.storage.session) ───────────────────────────
+
+// ── Ephemeral Session State (chrome.storage.session) ───────────────────
 
 /**
- * Get the set of attached tab IDs.
- * @returns {Promise<Set<number>>}
+ * Check if the debugger is actively attached to a tab.
+ */
+async function isTabAttached(tabId) {
+  try {
+    const result = await chrome.storage.session.get(SESSION_KEYS.ATTACHED_TABS);
+    const tabs = result[SESSION_KEYS.ATTACHED_TABS] || [];
+    return tabs.includes(tabId);
+  } catch (err) {
+    // Session storage occasionally throws in some contexts if not initialized
+    return false;
+  }
+}
+
+/**
+ * Get all tab IDs that have the debugger attached.
  */
 async function getAttachedTabs() {
-  const result = await chrome.storage.session.get(SESSION_KEYS.ATTACHED_TABS);
-  const tabs = result[SESSION_KEYS.ATTACHED_TABS] || [];
-  return new Set(tabs);
+  try {
+    const result = await chrome.storage.session.get(SESSION_KEYS.ATTACHED_TABS);
+    return result[SESSION_KEYS.ATTACHED_TABS] || [];
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Mark a tab as having the debugger attached.
- * @param {number} tabId
+ * Record a tab as attached.
  */
 async function addAttachedTab(tabId) {
   const tabs = await getAttachedTabs();
-  tabs.add(tabId);
-  await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: [...tabs] });
+  if (!tabs.includes(tabId)) {
+    tabs.push(tabId);
+    await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
+  }
 }
 
 /**
- * Remove a tab from the attached set.
- * @param {number} tabId
+ * Remove a tab record.
  */
 async function removeAttachedTab(tabId) {
-  const tabs = await getAttachedTabs();
-  tabs.delete(tabId);
-  await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: [...tabs] });
+  let tabs = await getAttachedTabs();
+  tabs = tabs.filter(id => id !== tabId);
+  await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
 }
 
-/**
- * Check if a tab has the debugger attached.
- * @param {number} tabId
- * @returns {Promise<boolean>}
- */
-async function isTabAttached(tabId) {
-  const tabs = await getAttachedTabs();
-  return tabs.has(tabId);
-}
-
-// ── Exports ────────────────────────────────────────────────────────────
 
 export {
-  STORAGE_KEYS,
-  SESSION_KEYS,
-  generateId,
-  createRule,
-  getRules,
-  saveRule,
-  updateRule,
-  deleteRule,
-  getRule,
-  toggleRule,
+  getProfiles,
+  saveProfile,
+  updateProfile,
+  deleteProfile,
+  toggleProfile,
+  createMod,
   getGlobalEnabled,
   setGlobalEnabled,
+  isTabAttached,
   getAttachedTabs,
   addAttachedTab,
-  removeAttachedTab,
-  isTabAttached
+  removeAttachedTab
 };
