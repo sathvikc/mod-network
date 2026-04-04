@@ -137,7 +137,7 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
   }
 
   const originalBody = bodyResult.base64Encoded
-    ? atob(bodyResult.body)
+    ? new TextDecoder('utf-8').decode(Uint8Array.from(atob(bodyResult.body), c => c.charCodeAt(0)))
     : bodyResult.body;
 
   const headersObj = headersArrayToObject(responseHeaders);
