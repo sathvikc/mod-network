@@ -52,8 +52,17 @@ async function attachToTab(tabId, patterns = null) {
 
     return true;
   } catch (error) {
+    // "Another debugger is already attached" means a concurrent sweep got here first.
+    // Don't detach — that would kill their session. Just ensure our storage is consistent.
+    if (error.message?.includes('Another debugger is already attached')) {
+      console.log(`[ModNetwork] Tab ${tabId} was already attached by concurrent call — syncing state`);
+      await addAttachedTab(tabId);
+      await updateIcon(tabId, true);
+      return true;
+    }
+
     console.error(`[ModNetwork] Failed to attach debugger to tab ${tabId}:`, error);
-    // Clean up if partial attachment happened
+    // Clean up if partial attachment happened (e.g. Fetch.enable failed after attach)
     try {
       await chrome.debugger.detach({ tabId });
     } catch (_) {

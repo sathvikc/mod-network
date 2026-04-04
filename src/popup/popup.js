@@ -240,6 +240,7 @@ async function saveActiveProfile() {
   if (!activeProfileId) return;
   const activeProfile = profiles.find(p => p.id === activeProfileId);
   await sendMessage({ type: 'UPDATE_PROFILE', profileId: activeProfileId, changes: { mods: activeProfile.mods } });
+  await initTabStatus();
 }
 
 function bindRowEvents() {
@@ -326,6 +327,7 @@ function setupEventListeners() {
     activeProfile.enabled = e.target.checked;
     await sendMessage({ type: 'UPDATE_PROFILE', profileId: activeProfileId, changes: { enabled: e.target.checked } });
     renderSidebar();
+    await initTabStatus();
   });
 
   $$('.add-mod-btn').forEach(btn => {
@@ -339,6 +341,7 @@ function setupEventListeners() {
         type: type,
         enabled: true,
         name: `New ${type}`,
+        match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
         createdAt: Date.now()
       });
       await saveActiveProfile();
@@ -356,5 +359,6 @@ function setupEventListeners() {
 
   globalToggle.addEventListener('change', async () => {
     await sendMessage({ type: 'SET_GLOBAL_ENABLED', enabled: globalToggle.checked });
+    await initTabStatus();
   });
 }

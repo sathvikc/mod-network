@@ -64,6 +64,28 @@ async function findMatchingRules(url, resourceType, stage) {
 }
 
 /**
+ * Check if any active AdvancedJS Mod matches this URL.
+ * Used to determine whether the Debugger API should be auto-attached to a tab.
+ */
+async function hasAdvancedJSRuleForUrl(url) {
+  const globalEnabled = await getGlobalEnabled();
+  if (!globalEnabled) return false;
+
+  const profiles = await getProfiles();
+  for (const profile of profiles) {
+    if (!profile.enabled) continue;
+    for (const mod of profile.mods) {
+      if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
+      // Don't attach if no scripts are actually defined — nothing to intercept
+      if (!mod.scripts?.onBeforeRequest && !mod.scripts?.onResponse) continue;
+      const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
+      if (matchesUrl(url, matchObj)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Check if ANY active rule (Header, Redirect, JS) applies to this URL.
  */
 async function isAnyRuleActiveForUrl(url) {
@@ -125,7 +147,27 @@ async function generateFetchPatterns() {
 /**
  * Compile active Friendly Rules (ModifyHeader, Redirect) from Profiles to Chrome DNR.
  */
+let _syncInProgress = false;
+let _syncPending = false;
+
 async function syncDNRRules() {
+  if (_syncInProgress) {
+    _syncPending = true;
+    return;
+  }
+  _syncInProgress = true;
+  try {
+    await _doSyncDNRRules();
+  } finally {
+    _syncInProgress = false;
+    if (_syncPending) {
+      _syncPending = false;
+      await syncDNRRules();
+    }
+  }
+}
+
+async function _doSyncDNRRules() {
   const globalEnabled = await getGlobalEnabled();
   const profiles = await getProfiles();
   
@@ -211,6 +253,7 @@ export {
   matchesUrl,
   matchesResourceType,
   findMatchingRules,
+  hasAdvancedJSRuleForUrl,
   isAnyRuleActiveForUrl,
   generateFetchPatterns,
   syncDNRRules

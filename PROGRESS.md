@@ -23,9 +23,16 @@
 ---
 
 ## Milestone 4: Smart Automation (Current) 🚧
-- [ ] **Intelligent Auto-Attach** — Automatically attach debugger to tabs matching JS rules
-- [ ] **Context-Aware Detach** — Silently detach debugger when match is lost to hide yellow banner
-- [ ] **Privacy-First Sweep** — Global/Profile toggles actively scan and clean up debugger instances
+- [x] **Intelligent Auto-Attach** — Automatically attach debugger to tabs matching AdvancedJS rules (on navigation + startup scan)
+- [x] **Context-Aware Detach** — Silently detach debugger when tab navigates to a URL with no matching AdvancedJS rules
+- [x] **Privacy-First Sweep** — Global/Profile/Mod toggles sweep all attached tabs and detach if rules no longer match
+
+---
+
+## UI Backlog
+
+- [ ] **Active Workspace Indicator** — Show a visible indicator (badge/tick/highlight) on the selected sidebar profile so users know which workspace is currently active. Related: single-active model where clicking a profile activates it and deactivates others, with a "pin" mechanism (hover icon or right-click) to keep multiple workspaces enabled simultaneously.
+- [ ] **Expand Active Rule Sections** — When a rule section (ModifyHeader / Redirect / AdvancedJS) has at least one enabled mod, expand it by default. If the user collapses it, show a subtle indicator (dot/count) on the section header to signal it contains active rules.
 
 ---
 

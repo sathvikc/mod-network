@@ -6,13 +6,13 @@
  * worker restarts.
  */
 
-import { handleDetach, syncState, toggleTab, isAttached, detachAll, updateIcon } from './debugger-manager.js';
+import { handleDetach, syncState, toggleTab, isAttached, attachToTab, detachFromTab, detachAll, updateIcon } from './debugger-manager.js';
 import { handleRequestPaused } from './interceptor.js';
 import {
   getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
-  getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab
+  getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab, getAttachedTabs
 } from '../storage/storage-manager.js';
-import { syncDNRRules, isAnyRuleActiveForUrl } from './rule-engine.js';
+import { syncDNRRules, isAnyRuleActiveForUrl, hasAdvancedJSRuleForUrl } from './rule-engine.js';
 
 // ── Event Listeners (top-level registration, MV3 requirement) ──────────
 
@@ -58,19 +58,69 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 /**
- * Re-apply badge when a tab finishes loading (Chrome clears per-tab badge on navigation).
+ * Re-evaluate debugger state when a tab finishes loading.
+ * Only attach if this is the active tab — background tabs are never attached.
+ * Detach always fires if rules no longer match (cleans up tabs that navigated away).
  */
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
-  if (changeInfo.status === 'complete' && await isTabAttached(tabId)) {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !tab.url) return;
+
+  const url = tab.url;
+
+  // Never attach to internal browser pages
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    if (await isAttached(tabId)) await detachFromTab(tabId);
+    return;
+  }
+
+  const shouldAttach = await hasAdvancedJSRuleForUrl(url);
+  const alreadyAttached = await isAttached(tabId);
+
+  if (shouldAttach && !alreadyAttached && tab.active) {
+    console.log(`[ModNetwork] Auto-attaching debugger to tab ${tabId} for: ${url}`);
+    await attachToTab(tabId);
+  } else if (!shouldAttach && alreadyAttached) {
+    console.log(`[ModNetwork] Auto-detaching debugger from tab ${tabId} — no AdvancedJS rules match: ${url}`);
+    await detachFromTab(tabId);
+  } else if (alreadyAttached) {
+    // Still matches — Chrome clears per-tab badge on navigation, re-apply it
     await updateIcon(tabId, true);
   }
 });
 
 /**
- * Hook into storage changes to synchronize data across the engine.
+ * When the user switches tabs:
+ * - Attach to the newly active tab if it matches an AdvancedJS rule.
+ * - Detach from all other tabs (only the active tab ever holds a debugger session).
+ */
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  // Detach all tabs that aren't the newly active one
+  const attachedTabs = await getAttachedTabs();
+  for (const attachedTabId of attachedTabs) {
+    if (attachedTabId !== tabId) {
+      await detachFromTab(attachedTabId);
+    }
+  }
+
+  // Attach to newly active tab if it matches and is fully loaded
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.status !== 'complete' || !tab.url) return; // onUpdated will handle it when load finishes
+  if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) return;
+
+  if (await hasAdvancedJSRuleForUrl(tab.url) && !(await isAttached(tabId))) {
+    console.log(`[ModNetwork] Auto-attaching debugger on tab switch to tab ${tabId}: ${tab.url}`);
+    await attachToTab(tabId);
+  }
+});
+
+/**
+ * Hook into storage changes to synchronize DNR rules.
+ * Debugger sweep is NOT triggered here — it is handled directly by each message
+ * handler that modifies storage, so the response is only sent after the sweep
+ * completes. Calling sweep here would race with the message handler's sweep and
+ * cause the popup to query tab status before detach has finished.
  */
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
-  // If rules or global toggle changed in persistent storage, sync DNR
   if (namespace === 'local' && (changes.modnetwork_profiles || changes.modnetwork_global_enabled)) {
     await syncDNRRules();
   }
@@ -86,16 +136,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await setGlobalEnabled(true);
   }
 
-  if (details.reason === 'install' || details.reason === 'update') {
-    // Remove any old example/test profiles
-    const existingProfiles = await getProfiles();
-    for (const profile of existingProfiles) {
-      if (profile.name.includes('Example') || profile.name.includes('Test') || profile.name.includes('Legacy')) {
-        await deleteProfile(profile.id);
-      }
-    }
-
-    // Create a working test rule for the test server
+  if (details.reason === 'install') {
+    // First-time install only: seed a test profile for localhost dev server.
+    // Do NOT run this on 'update' (extension reload) — that would recreate the
+    // profile with enabled=true every time the user reloads, overriding their
+    // disabled state and causing spurious debugger attaches.
     const responseScript = [
       '// Fetch replacement header from local dev server',
       'const localHeader = await fetch("http://localhost:8766/header")',
@@ -119,6 +164,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
           type: 'AdvancedJS',
           name: 'Replace Header HTML',
           enabled: true,
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
           scripts: {
             onBeforeRequest: null,
             onResponse: responseScript
@@ -126,8 +172,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         }
       ]
     });
-    console.log('[ModNetwork] Test profile created/updated');
-    
+    console.log('[ModNetwork] Test profile created');
+
     // Ensure DNR engine is synced with new base rules
     await syncDNRRules();
   }
@@ -135,10 +181,81 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 /**
  * On service worker startup, sync state.
+ * Must await syncState before autoAttachMatchingTabs to avoid stale-storage races.
  */
-syncState();
-syncDNRRules();
-updateExtensionBadge();
+(async () => {
+  await syncState();
+  syncDNRRules(); // independent — has its own concurrency guard
+  await updateExtensionBadge();
+  // sweepDebuggerAttachments both detaches tabs whose rules are now disabled
+  // AND attaches tabs that should be active. Using it here (instead of just
+  // autoAttachMatchingTabs) handles the case where the SW restarted while a
+  // rule was disabled but the Chrome debugger was still attached.
+  await sweepDebuggerAttachments();
+})();
+
+/**
+ * Re-evaluate all currently attached tabs against the current rule state.
+ * Detaches any tab whose URL no longer matches an active AdvancedJS rule.
+ * Also attaches to the active tab if a newly enabled rule now matches it.
+ * Called whenever profiles or global toggle changes.
+ *
+ * Uses a concurrency guard: if a sweep is already running, the next call
+ * queues one follow-up sweep rather than running a second concurrent pass.
+ * This prevents race conditions when message handlers and storage.onChanged
+ * both trigger a sweep for the same storage write.
+ */
+let _sweepInProgress = false;
+let _sweepPending = false;
+
+async function sweepDebuggerAttachments() {
+  if (_sweepInProgress) {
+    _sweepPending = true;
+    return;
+  }
+  _sweepInProgress = true;
+  try {
+    await _doSweepDebuggerAttachments();
+  } finally {
+    _sweepInProgress = false;
+    if (_sweepPending) {
+      _sweepPending = false;
+      await sweepDebuggerAttachments();
+    }
+  }
+}
+
+async function _doSweepDebuggerAttachments() {
+  // Detach any attached tab that no longer has a matching rule
+  const attachedTabs = await getAttachedTabs();
+  for (const tabId of attachedTabs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab.url || !(await hasAdvancedJSRuleForUrl(tab.url))) {
+        console.log(`[ModNetwork] Sweep: detaching tab ${tabId} — rules no longer match`);
+        await detachFromTab(tabId);
+      }
+    } catch {
+      // Tab no longer exists — clean up stale session entry
+      await removeAttachedTab(tabId);
+    }
+  }
+
+  // Attach to the active tab if a rule was just enabled and now matches
+  await autoAttachMatchingTabs();
+}
+
+async function autoAttachMatchingTabs() {
+  // Only consider the active tab in each window — background tabs are never attached
+  const activeTabs = await chrome.tabs.query({ active: true, url: ['http://*/*', 'https://*/*'] });
+  for (const tab of activeTabs) {
+    if (!tab.id || !tab.url || tab.status !== 'complete') continue;
+    if (await hasAdvancedJSRuleForUrl(tab.url) && !(await isAttached(tab.id))) {
+      console.log(`[ModNetwork] Auto-attaching to active tab ${tab.id}: ${tab.url}`);
+      await attachToTab(tab.id);
+    }
+  }
+}
 
 async function updateExtensionBadge() {
   const enabled = await getGlobalEnabled();
@@ -191,21 +308,25 @@ async function handleMessage(message, sender) {
 
     case 'SAVE_PROFILE': {
       const profile = await saveProfile(message.profileData);
+      await sweepDebuggerAttachments();
       return { profile };
     }
 
     case 'UPDATE_PROFILE': {
       const profile = await updateProfile(message.profileId, message.changes);
+      await sweepDebuggerAttachments();
       return { profile };
     }
 
     case 'DELETE_PROFILE': {
       await deleteProfile(message.profileId);
+      await sweepDebuggerAttachments();
       return { success: true };
     }
 
     case 'TOGGLE_PROFILE': {
       await toggleProfile(message.profileId);
+      await sweepDebuggerAttachments();
       return { success: true };
     }
 
@@ -218,6 +339,7 @@ async function handleMessage(message, sender) {
     case 'SET_GLOBAL_ENABLED': {
       await setGlobalEnabled(message.enabled);
       await updateExtensionBadge();
+      await sweepDebuggerAttachments();
       return { success: true };
     }
 
