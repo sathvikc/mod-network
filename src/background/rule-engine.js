@@ -2,7 +2,21 @@
  * RuleEngine — Matches incoming requests against user-defined Profiles and Mods.
  */
 
-import { getProfiles, getGlobalEnabled } from '../storage/storage-manager.js';
+import { getProfiles, getGlobalEnabled, getActiveProfileId } from '../storage/storage-manager.js';
+
+/**
+ * A profile's rules are active if it is explicitly enabled AND it is either
+ * the currently selected profile or a pinned (always-on) profile.
+ * @param {Object} profile
+ * @param {string|null} activeProfileId — null means no selection yet; first profile acts as default
+ * @param {boolean} isFirst — true if this is the first profile in the list (fallback default)
+ */
+function isProfileActive(profile, activeProfileId, isFirst = false) {
+  if (!profile.enabled) return false;
+  if (profile.pinned) return true;
+  if (activeProfileId) return profile.id === activeProfileId;
+  return isFirst; // no selection yet — treat first profile as active
+}
 
 function patternToRegex(pattern) {
   if (pattern === '<all_urls>' || pattern === '*') return /^https?:\/\/.*/;
@@ -40,11 +54,11 @@ async function findMatchingRules(url, resourceType, stage) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return [];
 
-  const profiles = await getProfiles();
+  const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
   const matchingMods = [];
 
-  for (const profile of profiles) {
-    if (!profile.enabled) continue;
+  for (const [i, profile] of profiles.entries()) {
+    if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
     for (const mod of profile.mods) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
@@ -71,9 +85,9 @@ async function hasAdvancedJSRuleForUrl(url) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return false;
 
-  const profiles = await getProfiles();
-  for (const profile of profiles) {
-    if (!profile.enabled) continue;
+  const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
+  for (const [i, profile] of profiles.entries()) {
+    if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
     for (const mod of profile.mods) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
       // Don't attach if no scripts are actually defined — nothing to intercept
@@ -92,10 +106,10 @@ async function isAnyRuleActiveForUrl(url) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return false;
 
-  const profiles = await getProfiles();
-  for (const profile of profiles) {
-    if (!profile.enabled) continue;
-    
+  const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
+  for (const [i, profile] of profiles.entries()) {
+    if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
+
     for (const mod of profile.mods) {
       if (!mod.enabled) continue;
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
@@ -112,11 +126,11 @@ async function generateFetchPatterns() {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return [];
 
-  const profiles = await getProfiles();
+  const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
   const patterns = [];
 
-  for (const profile of profiles) {
-    if (!profile.enabled) continue;
+  for (const [i, profile] of profiles.entries()) {
+    if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
     
     for (const mod of profile.mods) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
@@ -168,9 +182,10 @@ async function syncDNRRules() {
 }
 
 async function _doSyncDNRRules() {
-  const globalEnabled = await getGlobalEnabled();
-  const profiles = await getProfiles();
-  
+  const [globalEnabled, profiles, activeProfileId] = await Promise.all([
+    getGlobalEnabled(), getProfiles(), getActiveProfileId()
+  ]);
+
   const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeRuleIds = existingRules.map(r => r.id);
 
@@ -183,8 +198,8 @@ async function _doSyncDNRRules() {
   };
 
   if (globalEnabled) {
-    for (const profile of profiles) {
-      if (!profile.enabled) continue;
+    for (const [i, profile] of profiles.entries()) {
+      if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
       for (const mod of profile.mods) {
         if (!mod.enabled || mod.type === 'AdvancedJS') continue;

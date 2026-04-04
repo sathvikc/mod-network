@@ -75,7 +75,7 @@ async function loadData(preserveActiveId = null) {
   } else if (!activeProfileId || !profiles.find(p => p.id === activeProfileId)) {
     // Restore from storage, else fall back to first profile
     const stored = await chrome.storage.local.get('modnetwork_active_profile_id');
-    const storedId = stored.modnetwork_active_profile_id;
+    const storedId = stored['modnetwork_active_profile_id'];
     activeProfileId = (storedId && profiles.find(p => p.id === storedId)) ? storedId : profiles[0].id;
   }
 
@@ -84,26 +84,19 @@ async function loadData(preserveActiveId = null) {
 }
 
 /**
- * Activate a profile: select it in UI, enable it, disable all non-pinned others.
+ * Activate a profile: select it in UI and notify the SW to sync rules.
+ * If the profile was manually disabled, re-enable it so its rules take effect.
  */
 async function activateProfile(profileId) {
   activeProfileId = profileId;
-  await chrome.storage.local.set({ modnetwork_active_profile_id: profileId });
 
-  for (const p of profiles) {
-    const shouldEnable = p.id === profileId || p.pinned;
-    if (p.enabled !== shouldEnable) {
-      p.enabled = shouldEnable;
-      await sendMessage({ type: 'UPDATE_PROFILE', profileId: p.id, changes: { enabled: shouldEnable } });
-    }
-  }
-  // Always ensure the clicked profile is enabled (even if it was already)
   const clicked = profiles.find(p => p.id === profileId);
   if (clicked && !clicked.enabled) {
     clicked.enabled = true;
     await sendMessage({ type: 'UPDATE_PROFILE', profileId: profileId, changes: { enabled: true } });
   }
 
+  await sendMessage({ type: 'SET_ACTIVE_PROFILE', profileId });
   renderSidebar();
   renderMain();
   await initTabStatus();

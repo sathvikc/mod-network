@@ -10,7 +10,8 @@ import { handleDetach, syncState, toggleTab, isAttached, attachToTab, detachFrom
 import { handleRequestPaused } from './interceptor.js';
 import {
   getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
-  getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab, getAttachedTabs
+  getGlobalEnabled, setGlobalEnabled, getActiveProfileId, setActiveProfileId,
+  isTabAttached, removeAttachedTab, getAttachedTabs
 } from '../storage/storage-manager.js';
 import { syncDNRRules, isAnyRuleActiveForUrl, hasAdvancedJSRuleForUrl } from './rule-engine.js';
 
@@ -121,7 +122,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
  * cause the popup to query tab status before detach has finished.
  */
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
-  if (namespace === 'local' && (changes.modnetwork_profiles || changes.modnetwork_global_enabled)) {
+  if (namespace === 'local' && (changes.modnetwork_profiles || changes.modnetwork_global_enabled || changes.modnetwork_active_profile_id)) {
     await syncDNRRules();
   }
 });
@@ -326,6 +327,14 @@ async function handleMessage(message, sender) {
 
     case 'TOGGLE_PROFILE': {
       await toggleProfile(message.profileId);
+      await sweepDebuggerAttachments();
+      return { success: true };
+    }
+
+    // ── Active Profile ──
+    case 'SET_ACTIVE_PROFILE': {
+      await setActiveProfileId(message.profileId);
+      await syncDNRRules();
       await sweepDebuggerAttachments();
       return { success: true };
     }

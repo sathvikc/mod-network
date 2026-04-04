@@ -7,7 +7,8 @@
 
 const STORAGE_KEYS = {
   PROFILES: 'modnetwork_profiles',
-  GLOBAL_ENABLED: 'modnetwork_global_enabled'
+  GLOBAL_ENABLED: 'modnetwork_global_enabled',
+  ACTIVE_PROFILE_ID: 'modnetwork_active_profile_id'
 };
 
 const SESSION_KEYS = {
@@ -193,6 +194,23 @@ async function toggleProfile(id) {
   }
 }
 
+// ── Active Profile ─────────────────────────────────────────────────────
+
+/**
+ * Get the currently selected/active profile ID.
+ */
+async function getActiveProfileId() {
+  const result = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_PROFILE_ID);
+  return result[STORAGE_KEYS.ACTIVE_PROFILE_ID] || null;
+}
+
+/**
+ * Set the currently selected/active profile ID.
+ */
+async function setActiveProfileId(id) {
+  await chrome.storage.local.set({ [STORAGE_KEYS.ACTIVE_PROFILE_ID]: id });
+}
+
 // ── Global State ───────────────────────────────────────────────────────
 
 /**
@@ -268,6 +286,8 @@ export {
   deleteProfile,
   toggleProfile,
   createMod,
+  getActiveProfileId,
+  setActiveProfileId,
   getGlobalEnabled,
   setGlobalEnabled,
   isTabAttached,
