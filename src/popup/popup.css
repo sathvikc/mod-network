@@ -126,6 +126,11 @@ input:checked + .ui-slider:before { transform: translateX(16px); background-colo
 .profile-item.enabled .profile-dot { opacity: 1; }
 .profile-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.pin-btn { display: none; color: var(--text-tertiary); flex-shrink: 0; }
+.profile-item:hover .pin-btn { display: flex; }
+.profile-item.pinned .pin-btn { display: flex; color: var(--accent-primary); }
+.pin-btn:hover { color: var(--text-primary) !important; }
+
 /* ── Main Dashboard ── */
 .main-content {
   flex: 1; overflow-y: auto; background: var(--bg-primary);

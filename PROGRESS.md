@@ -31,7 +31,7 @@
 
 ## UI Backlog
 
-- [ ] **Active Workspace Indicator** — Show a visible indicator (badge/tick/highlight) on the selected sidebar profile so users know which workspace is currently active. Related: single-active model where clicking a profile activates it and deactivates others, with a "pin" mechanism (hover icon or right-click) to keep multiple workspaces enabled simultaneously.
+- [x] **Active Workspace Indicator** — Selected profile is visually highlighted; clicking a profile activates it (enables it + disables non-pinned others). Pin button (hover icon) keeps a workspace always active regardless of selection. `activeProfileId` persisted to `chrome.storage.local`.
 - [ ] **Expand Active Rule Sections** — When a rule section (ModifyHeader / Redirect / AdvancedJS) has at least one enabled mod, expand it by default. If the user collapses it, show a subtle indicator (dot/count) on the section header to signal it contains active rules.
 
 ---

@@ -67,40 +67,88 @@ function updateTabUI(isAttached) {
 async function loadData(preserveActiveId = null) {
   const res = await sendMessage({ type: 'GET_PROFILES' });
   profiles = res.profiles || [];
-  
+
   if (profiles.length === 0) {
     activeProfileId = null;
+  } else if (preserveActiveId && profiles.find(p => p.id === preserveActiveId)) {
+    activeProfileId = preserveActiveId;
   } else if (!activeProfileId || !profiles.find(p => p.id === activeProfileId)) {
-    activeProfileId = preserveActiveId || profiles[0].id;
+    // Restore from storage, else fall back to first profile
+    const stored = await chrome.storage.local.get('modnetwork_active_profile_id');
+    const storedId = stored.modnetwork_active_profile_id;
+    activeProfileId = (storedId && profiles.find(p => p.id === storedId)) ? storedId : profiles[0].id;
   }
 
   renderSidebar();
   renderMain();
 }
 
+/**
+ * Activate a profile: select it in UI, enable it, disable all non-pinned others.
+ */
+async function activateProfile(profileId) {
+  activeProfileId = profileId;
+  await chrome.storage.local.set({ modnetwork_active_profile_id: profileId });
+
+  for (const p of profiles) {
+    const shouldEnable = p.id === profileId || p.pinned;
+    if (p.enabled !== shouldEnable) {
+      p.enabled = shouldEnable;
+      await sendMessage({ type: 'UPDATE_PROFILE', profileId: p.id, changes: { enabled: shouldEnable } });
+    }
+  }
+  // Always ensure the clicked profile is enabled (even if it was already)
+  const clicked = profiles.find(p => p.id === profileId);
+  if (clicked && !clicked.enabled) {
+    clicked.enabled = true;
+    await sendMessage({ type: 'UPDATE_PROFILE', profileId: profileId, changes: { enabled: true } });
+  }
+
+  renderSidebar();
+  renderMain();
+  await initTabStatus();
+}
+
 // ── Rendering ──────────────────────────────────────────────────
 
 function renderSidebar() {
   profileList.innerHTML = '';
+  const isCollapsed = sidebar.classList.contains('collapsed');
+
   profiles.forEach(p => {
     const el = document.createElement('div');
     const color = p.color || 'var(--accent-primary)';
-    
-    // Auto-generate initials for collapsed view
     const initials = p.name ? p.name.substring(0, 2).toUpperCase() : 'W';
 
-    el.className = `profile-item ${p.id === activeProfileId ? 'active' : ''} ${p.enabled ? 'enabled' : ''}`;
+    el.className = `profile-item ${p.id === activeProfileId ? 'active' : ''} ${p.enabled ? 'enabled' : ''} ${p.pinned ? 'pinned' : ''}`;
     el.innerHTML = `
       <div class="profile-dot" style="background: ${color}; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; width: 24px; height: 24px; border-radius: 4px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">
-        ${sidebar.classList.contains('collapsed') ? initials : ''}
+        ${isCollapsed ? initials : ''}
       </div>
       <span class="profile-name">${p.name}</span>
+      ${!isCollapsed ? `
+      <button class="pin-btn icon-btn" title="${p.pinned ? 'Unpin workspace' : 'Pin workspace (keep always active)'}">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="${p.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="17" x2="12" y2="22"></line>
+          <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"></path>
+        </svg>
+      </button>` : ''}
     `;
-    el.addEventListener('click', () => {
-      activeProfileId = p.id;
-      renderSidebar();
-      renderMain();
+
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.pin-btn')) return; // handled by pin-btn
+      activateProfile(p.id);
     });
+
+    if (!isCollapsed) {
+      el.querySelector('.pin-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        p.pinned = !p.pinned;
+        await sendMessage({ type: 'UPDATE_PROFILE', profileId: p.id, changes: { pinned: p.pinned } });
+        renderSidebar();
+      });
+    }
+
     profileList.appendChild(el);
   });
 }

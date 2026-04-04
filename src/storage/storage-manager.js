@@ -36,6 +36,7 @@ function createProfile(overrides = {}) {
     name: overrides.name || 'Untitled Profile',
     color: overrides.color || 'var(--accent-primary)',
     enabled: overrides.enabled !== undefined ? overrides.enabled : true,
+    pinned: overrides.pinned || false,
     filters: overrides.filters || [
       { urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] }
     ],
