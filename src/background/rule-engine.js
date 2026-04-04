@@ -64,9 +64,9 @@ async function findMatchingRules(url, resourceType, stage) {
 }
 
 /**
- * Check if any AdvancedJS rules could potentially match a URL (quick check).
+ * Check if ANY active rule (Header, Redirect, JS) applies to this URL.
  */
-async function hasAnyMatchingRules(url) {
+async function isAnyRuleActiveForUrl(url) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return false;
 
@@ -75,7 +75,7 @@ async function hasAnyMatchingRules(url) {
     if (!profile.enabled) continue;
     
     for (const mod of profile.mods) {
-      if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
+      if (!mod.enabled) continue;
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
       if (matchesUrl(url, matchObj)) return true;
     }
@@ -211,7 +211,7 @@ export {
   matchesUrl,
   matchesResourceType,
   findMatchingRules,
-  hasAnyMatchingRules,
+  isAnyRuleActiveForUrl,
   generateFetchPatterns,
   syncDNRRules
 };

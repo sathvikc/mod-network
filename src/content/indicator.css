@@ -1,0 +1,69 @@
+/* ═══════════════════════════════════════════════════════════════
+   ModNetwork — In-Tab Visual Indicator (Zero Occlusion)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Option B: Persistent Glow Bar ── */
+.modnetwork-active-glow-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px; /* Thin and un-intrusive */
+  background: linear-gradient(90deg, #6366f1, #a855f7, #6366f1);
+  background-size: 200% auto;
+  z-index: 2147483647; /* Maximum z-index to stay above everything */
+  pointer-events: none; /* Crucial: cannot block clicks! */
+  animation: modnetwork-gradient-sweep 3s linear infinite;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
+}
+
+@keyframes modnetwork-gradient-sweep {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* ── Option A: Ephemeral Toast ── */
+.modnetwork-toast-container {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  z-index: 2147483647;
+  pointer-events: none; /* Toast shouldn't grab attention/clicks */
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  opacity: 0;
+}
+
+.modnetwork-toast-container.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.modnetwork-toast {
+  background: #16161e;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(99, 102, 241, 0.2);
+  color: #e4e4ef;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.modnetwork-toast svg {
+  color: #a855f7;
+}
+
+.modnetwork-toast-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.modnetwork-toast-subtitle {
+  font-size: 11px;
+  color: #9898b0;
+}

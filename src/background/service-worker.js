@@ -12,7 +12,7 @@ import {
   getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
   getGlobalEnabled, setGlobalEnabled, isTabAttached, removeAttachedTab
 } from '../storage/storage-manager.js';
-import { syncDNRRules } from './rule-engine.js';
+import { syncDNRRules, isAnyRuleActiveForUrl } from './rule-engine.js';
 
 // ── Event Listeners (top-level registration, MV3 requirement) ──────────
 
@@ -138,6 +138,17 @@ chrome.runtime.onInstalled.addListener(async (details) => {
  */
 syncState();
 syncDNRRules();
+updateExtensionBadge();
+
+async function updateExtensionBadge() {
+  const enabled = await getGlobalEnabled();
+  if (enabled) {
+    chrome.action.setBadgeText({ text: 'ON' });
+    chrome.action.setBadgeBackgroundColor({ color: '#10b981' }); // Emerald Green
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
 
 // ── Message Handler ────────────────────────────────────────────────────
 
@@ -206,7 +217,14 @@ async function handleMessage(message, sender) {
 
     case 'SET_GLOBAL_ENABLED': {
       await setGlobalEnabled(message.enabled);
+      await updateExtensionBadge();
       return { success: true };
+    }
+
+    // ── Content Script API ──
+    case 'CHECK_ACTIVE_STATUS': {
+      const active = await isAnyRuleActiveForUrl(message.url);
+      return { active };
     }
 
     default:
