@@ -1,74 +1,42 @@
 # ModNetwork — Progress Tracker
 
 ## Milestone 1: Core Extension Foundation ✅
+- [x] Project initialized with git & storage-manager logic
+- [x] **MV3 Architecture** — Debugger, offscreen sandbox, and declarativeNetRequest (DNR)
+- [x] **DNR Engine** — Core Header modification and URL Redirect support
+- [x] **Debugger Engine** — Attach/detach logic for heavy response body modification
+- [x] **Sandbox Runtime** — Postman-style API (`context.json()`, `context.getRequestHeader()`)
+- [x] **Workspace Profiles** — Multi-profile support with nested Mods
 
-### Completed
-- [x] Project initialized with git
-- [x] `.gitignore` and `README.md` created
-- [x] `manifest.json` — MV3 with debugger, offscreen, sandbox permissions
-- [x] **Storage Manager** — Rule CRUD, session state, rule schema with user scripts
-- [x] **Debugger Manager** — Attach/detach/toggle/sync for CDP sessions
-- [x] **Rule Engine** — URL wildcard pattern matching, resource type filtering
-- [x] **Script Bridge** — Service Worker ↔ Offscreen ↔ Sandbox communication
-- [x] **Interceptor** — CDP Fetch.requestPaused handler, request/response modification
-- [x] **Service Worker** — Entry point, event registration, message routing, sample rule on install
-- [x] **Sandbox** — HTML + JS for user script execution via AsyncFunction
-- [x] **Offscreen Document** — Bridge between service worker and sandbox
-- [x] **Content Script** — Scaffold with page info and script injection
-- [x] **Popup HTML** — Rules list view + rule editor with code textareas
-- [x] **Popup CSS** — Premium dark theme with animations
-- [x] **Popup JS** — Full UI logic: rule CRUD, tab toggle, code editor line numbers
-- [x] **Icons** — Extension icons generated
-- [x] `INSTRUCTIONS.md` — Session continuity document
-- [x] `PROGRESS.md` — This file
+## Milestone 2: UI & UX Excellence ✅
+- [x] **Sidebar Dashboard** — Ultra-dense 2-column sidebar UI
+- [x] **Professional Styling** — Dark theme with CSS pill-sliders (ui-switch)
+- [x] **Global Toggle** — Extension-wide master switch
+- [x] **Extension Badge** — "ON" label indicates active global status (v0.7.0)
+- [x] **Workspace Management** — Create, Delete, and Toggle profile workspaces
 
-### Git Commits
-- [x] All components committed with granular messages
+## Milestone 3: In-Tab Feedback & Security ✅
+- [x] **Visual Indicators** — Persistent Top-Border Glow & 3s Ephemeral Toast (v0.7.0)
+- [x] **DNR Visibility** — manifestation of `declarativeNetRequestFeedback` for Network tab tracking
+- [x] **Test Suite** — Mock SVG Image server for Redirect testing (`cat.svg` -> `dog.svg`)
 
 ---
 
-## Milestone 2: Testing & Bug Fixes (Next)
-
-### To Do
-- [ ] Load extension in Chrome and verify it loads without errors
-- [ ] Test debugger attach/detach on a tab
-- [ ] Test rule creation, editing, toggling, deletion
-- [ ] Test response interception with a simple rule
-- [ ] Test sandbox script execution pipeline
-- [ ] Fix any issues found during testing
+## Milestone 4: Smart Automation (Current) 🚧
+- [ ] **Intelligent Auto-Attach** — Automatically attach debugger to tabs matching JS rules
+- [ ] **Context-Aware Detach** — Silently detach debugger when match is lost to hide yellow banner
+- [ ] **Privacy-First Sweep** — Global/Profile toggles actively scan and clean up debugger instances
 
 ---
 
-## Milestone 3: Header Replacement Use Case
+## Future Roadmap
 
-### To Do
-- [ ] Create a test page with header markers
-- [ ] Create a local server serving replacement HTML
-- [ ] Write an example rule that replaces header content
-- [ ] Verify end-to-end flow works
-- [ ] Document the use case with screenshots
+### Milestone 5: Developer Experience
+- [ ] **Script Console** — View log outputs from the sandbox in the popup
+- [ ] **Rule Templates** — Pre-built snippets for common header/body hacks
+- [ ] **JSON Path Editor** — Simplified UI for standard JSON response patches
 
----
-
-## Future Milestones
-
-### Milestone 4: Enhanced Script Editor
-- [ ] Syntax highlighting (custom, no library)
-- [ ] Error display in popup
-- [ ] Script execution logs/console
-- [ ] Script templates/snippets
-
-### Milestone 5: Advanced Features
-- [ ] Import/export rules
-- [ ] Request/response logging viewer
-- [ ] Breakpoints (pause and inspect before continuing)
-- [ ] URL redirect rules
-- [ ] Script injection rules
-- [ ] Headers-only modification mode (no body)
-
-### Milestone 6: Polish
-- [ ] Keyboard shortcuts
-- [ ] Rule search/filter
-- [ ] Rule ordering (priority)
-- [ ] Notifications on script errors
-- [ ] Performance optimization
+### Milestone 6: Enterprise Features
+- [ ] **Profile Sync** — Backup rules to Chrome account
+- [ ] **Import/Export** — Share JSON workspace exports with teammates
+- [ ] **Group Priority** — Conflict resolution between overlapping rules
