@@ -11,7 +11,8 @@
     "offscreen",
     "scripting",
     "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback"
   ],
   "host_permissions": [
     "<all_urls>"

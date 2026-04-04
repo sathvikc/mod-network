@@ -46,6 +46,11 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
       <p>If ModNetwork is working correctly, the header above should be replaced with the local dev version.</p>
       <p>The original header says "Production Header (Original)" in a dark background.</p>
       <p>The replacement header should say "Local Dev Header (Modified!)" in a green gradient background.</p>
+      
+      <div style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed #ddd;">
+        <p><strong>Redirect Test:</strong> If the Redirect Mod is active, the cat image below should turn into a blue dog.</p>
+        <img src="/api/cat.svg" alt="Test Image" style="display:block; margin-top: 8px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 250px; height: 120px;" />
+      </div>
     </div>
     <div class="info-box" style="margin-top: 12px;">
       <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
@@ -70,6 +75,18 @@ const LOCAL_HEADER_HTML = `<div class="header" id="global-header" style="backgro
 const testPageServer = http.createServer((req, res) => {
   console.log(`[Test Page] ${req.method} ${req.url}`);
   
+  if (req.url === '/api/cat.svg') {
+    res.writeHead(200, {'Content-Type': 'image/svg+xml', 'Access-Control-Allow-Origin': '*'});
+    return res.end('<svg width="250" height="120" xmlns="http://www.w3.org/2000/svg" style="background:#ddddbb"><rect width="100%" height="100%" fill="#ddddbb"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#444">🐱 Unmodified Cat</text></svg>');
+  }
+  
+  // This route exists on port 8765 but the redirect will actually send it to port 8766's identical route for a better test, OR just redirect it locally. 
+  // For maximum clarity, the redirect will explicitly Target the dog image!
+  if (req.url === '/api/dog.svg') {
+    res.writeHead(200, {'Content-Type': 'image/svg+xml', 'Access-Control-Allow-Origin': '*'});
+    return res.end('<svg width="250" height="120" xmlns="http://www.w3.org/2000/svg" style="background:#bbddff"><rect width="100%" height="100%" fill="#bbddff"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#003366">🐶 Redirected Dog!</text></svg>');
+  }
+
   // Specifically log headers modified by ModNetwork for easy verification
   const testHeader = req.headers['x-modnetwork-test'];
   if (testHeader) {

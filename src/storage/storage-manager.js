@@ -117,10 +117,10 @@ async function getProfiles() {
           headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
         }),
         createMod('Redirect', {
-          name: "Test API Redirect",
+          name: "Test Image Redirect",
           enabled: false, // Disabled by default for clean testing
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/old', resourceTypes: ['XHR', 'Fetch'] },
-          redirectUrl: 'http://localhost:8766/api/new'
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: ['Image', 'Fetch'] },
+          redirectUrl: 'http://localhost:8765/api/dog.svg'
         }),
         createMod('AdvancedJS', {
           name: "Local Dev UI Injector",
