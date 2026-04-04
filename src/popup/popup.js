@@ -178,7 +178,10 @@ function renderMain() {
     // Wrap row and submenu: [✓] [rowContent] [X] [⋮]
     wrapper.innerHTML = `
       <div class="dense-row">
-        <input type="checkbox" class="native-checkbox mod-toggle" data-index="${index}" ${mod.enabled ? 'checked' : ''}>
+        <label class="ui-switch" style="transform: scale(0.85);">
+          <input type="checkbox" class="mod-toggle" data-index="${index}" ${mod.enabled ? 'checked' : ''}>
+          <span class="ui-slider"></span>
+        </label>
         ${rowContent}
         <button class="icon-btn danger-text mod-delete" data-index="${index}" title="Delete" style="width:20px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
