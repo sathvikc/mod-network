@@ -6,7 +6,9 @@ Non-urgent improvements to address when time permits.
 
 ## UI / UX
 
-- [ ] **Theme support**: Add light, dark, and auto (system preference) themes. Currently dark-only.
+- [ ] **Theme support**: Add light, dark, and auto (system preference) themes.
+- [ ] **Custom Color Templates**: Allow users to define their own UI color variables (fully custom themes).
+- [ ] **Profile Colors**: Allow assigning distinct colors to different profiles for visual categorization.
 - [ ] **Popup sizing**: Make popup resizable if Chrome API allows, otherwise increase default size for better code editor experience.
 
 ---
