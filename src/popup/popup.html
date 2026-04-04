@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=600, initial-scale=1">
-  <title>ModNetwork</title>
+  <meta name="viewport" content="width=800, initial-scale=1">
+  <title>ModNetwork Dashboard</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -27,159 +27,84 @@
       </div>
       <div class="header-right">
         <div class="tab-status" id="tabStatus">
-          <span class="status-dot" id="statusDot"></span>
-          <span class="status-text" id="statusText">Inactive</span>
+          <!-- ModNetwork active indicator handled globally via toggleBtn right now -->
         </div>
-        <button class="btn btn-toggle" id="toggleBtn" title="Toggle interception on this tab">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
-            <line x1="12" y1="2" x2="12" y2="12"/>
-          </svg>
-        </button>
       </div>
     </header>
 
-    <!-- Rules List View -->
-    <main class="app-body" id="rulesView">
-      <div class="section-bar">
-        <span class="section-title">Rules</span>
-        <button class="btn btn-sm btn-primary" id="addRuleBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          New Rule
-        </button>
-      </div>
-      <div class="rules-list" id="rulesList">
-        <!-- Rules rendered here by JS -->
-      </div>
-      <div class="empty-state" id="emptyState" style="display:none;">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-        <p>No rules yet</p>
-        <p class="empty-sub">Create a rule to start intercepting requests</p>
-      </div>
-    </main>
-
-    <!-- Rule Editor View -->
-    <main class="app-body" id="editorView" style="display:none;">
-      <div class="section-bar">
-        <button class="btn btn-sm btn-ghost" id="backBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Back
-        </button>
-        <div class="editor-actions">
-          <button class="btn btn-sm btn-danger" id="deleteRuleBtn" style="display:none;">Delete</button>
-          <button class="btn btn-sm btn-primary" id="saveRuleBtn">Save</button>
+    <!-- Layout Container (2 Columns) -->
+    <div class="layout-container">
+      
+      <!-- Left Sidebar: Profile Workspaces -->
+      <aside class="sidebar collapsed" id="sidebar">
+        <div class="sidebar-header">
+          <button class="icon-btn" id="sidebarToggleBtn" title="Toggle Sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          </button>
+          <span class="sidebar-title">WORKSPACES</span>
+          <button class="icon-btn" id="addProfileBtn" title="New Workspace">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
         </div>
-      </div>
-
-      <div class="editor-form">
-        <!-- Rule Type -->
-        <div class="form-group">
-          <label class="form-label" for="ruleType">Rule Type</label>
-          <select class="form-input" id="ruleType">
-            <option value="AdvancedJS">Advanced JS (Response Body, Requires Debugger)</option>
-            <option value="ModifyHeader">Modify Header (Fast, Invisible)</option>
-            <option value="Redirect">Redirect URL (Fast, Invisible)</option>
-          </select>
+        <div class="profile-list" id="profileList">
+          <!-- Profiles injected here -->
         </div>
+      </aside>
 
-        <!-- Rule Name -->
-        <div class="form-group">
-          <label class="form-label" for="ruleName">Rule Name</label>
-          <input type="text" class="form-input" id="ruleName" placeholder="e.g., Replace Header HTML" autocomplete="off">
-        </div>
-
-        <!-- URL Pattern -->
-        <div class="form-group">
-          <label class="form-label" for="urlPattern">URL Pattern</label>
-          <input type="text" class="form-input mono" id="urlPattern" placeholder="*://example.com/*" autocomplete="off">
-          <span class="form-hint">Wildcards: * (any chars), ? (one char)</span>
-        </div>
-
-        <!-- Resource Types -->
-        <div class="form-group">
-          <label class="form-label">Resource Types</label>
-          <div class="checkbox-row" id="resourceTypes">
-            <label class="chip-check"><input type="checkbox" value="Document" checked><span>Document</span></label>
-            <label class="chip-check"><input type="checkbox" value="XHR"><span>XHR</span></label>
-            <label class="chip-check"><input type="checkbox" value="Fetch"><span>Fetch</span></label>
-            <label class="chip-check"><input type="checkbox" value="Script"><span>Script</span></label>
-            <label class="chip-check"><input type="checkbox" value="Stylesheet"><span>CSS</span></label>
-            <label class="chip-check"><input type="checkbox" value="Image"><span>Image</span></label>
-            <label class="chip-check"><input type="checkbox" value="Other"><span>Other</span></label>
+      <!-- Right Main: Profile Details -->
+      <main class="main-content">
+        <div class="profile-toolbar">
+          <div class="profile-info">
+            <h2 class="active-profile-name" id="activeProfileName">Loading...</h2>
+            <label class="toggle-switch profile-master-toggle" title="Enable/Disable this Workspace">
+              <input type="checkbox" id="profileToggle">
+              <span class="slider"></span>
+            </label>
           </div>
+          <button class="icon-btn danger-text" id="deleteProfileBtn" title="Delete Workspace">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+          </button>
         </div>
 
-        <!-- ============================================== -->
-        <!-- UI: Advanced JS -->
-        <!-- ============================================== -->
-        <div class="form-group type-section" id="section-AdvancedJS">
-          <div class="script-tabs">
-            <button class="script-tab active" data-tab="onBeforeRequest">onBeforeRequest</button>
-            <button class="script-tab" data-tab="onResponse">onResponse</button>
+        <!-- Section: Modify Headers -->
+        <section class="category-section" id="cat-ModifyHeader">
+          <div class="category-header">
+            <svg class="category-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 9l-7 7-7-7"/></svg>
+            <h3>Request Headers</h3>
           </div>
-          <!-- onBeforeRequest Editor -->
-          <div class="script-panel active" id="panel-onBeforeRequest">
-            <div class="script-hint">
-              Modify the request before it's sent. Available: <code>context.request</code> (url, method, headers, postData). Return modified context.
-            </div>
-            <div class="code-editor-wrap">
-              <div class="line-numbers" id="lineNumbers-onBeforeRequest"></div>
-              <textarea class="code-editor" id="script-onBeforeRequest" spellcheck="false" autocomplete="off" autocapitalize="off"
-                placeholder="// Modify request before sending&#10;// context.request.headers['X-Custom'] = 'value';&#10;return context.request;"></textarea>
-            </div>
+          <div class="category-body">
+            <div id="list-ModifyHeader"></div>
+            <button class="btn btn-ghost add-mod-btn" data-type="ModifyHeader" style="align-self: flex-start; margin-top: 4px;">+ Add header modification</button>
           </div>
-          <!-- onResponse Editor -->
-          <div class="script-panel" id="panel-onResponse">
-            <div class="script-hint">
-              Modify the response before the browser receives it. Available: <code>context.response</code> (body, headers, statusCode), <code>context.request</code>, <code>fetch()</code>. Return modified context.
-            </div>
-            <div class="code-editor-wrap">
-              <div class="line-numbers" id="lineNumbers-onResponse"></div>
-              <textarea class="code-editor" id="script-onResponse" spellcheck="false" autocomplete="off" autocapitalize="off"
-                placeholder="// Modify response body/headers&#10;// const local = await fetch('http://localhost:3000/header').then(r=>r.text());&#10;// context.response.body = context.response.body.replace('old', local);&#10;return context.response;"></textarea>
-            </div>
-          </div>
-        </div>
+        </section>
 
-        <!-- ============================================== -->
-        <!-- UI: Modify Header -->
-        <!-- ============================================== -->
-        <div class="form-group type-section" id="section-ModifyHeader" style="display: none;">
-          <div class="script-hint" style="margin-bottom: 10px;">
-            Add, remove, or set headers. This uses Chrome's native engine (Zero performance impact, no banner).
+        <!-- Section: Redirects -->
+        <section class="category-section" id="cat-Redirect">
+          <div class="category-header">
+            <svg class="category-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 9l-7 7-7-7"/></svg>
+            <h3>Redirects</h3>
           </div>
-          <div id="headerList"></div>
-          <button class="btn btn-sm" id="addHeaderBtn" style="margin-top: 10px;">+ Add Header</button>
-        </div>
-
-        <!-- ============================================== -->
-        <!-- UI: Redirect -->
-        <!-- ============================================== -->
-        <div class="form-group type-section" id="section-Redirect" style="display: none;">
-          <div class="script-hint" style="margin-bottom: 10px;">
-            Seamlessly redirect matched requests to a different URL (Zero performance impact, no banner).
+          <div class="category-body">
+            <div id="list-Redirect"></div>
+            <button class="btn btn-ghost add-mod-btn" data-type="Redirect" style="align-self: flex-start; margin-top: 4px;">+ Add redirect</button>
           </div>
-          <label class="form-label" for="redirectUrl">Destination URL</label>
-          <input type="text" class="form-input" id="redirectUrl" placeholder="https://example.com/new-path" autocomplete="off">
-        </div>
-      </div>
-    </main>
+        </section>
 
-    <!-- Footer -->
-    <footer class="app-footer">
-      <label class="global-toggle">
-        <input type="checkbox" id="globalToggle" checked>
-        <span class="toggle-slider"></span>
-        <span class="toggle-label">Global</span>
-      </label>
-      <span class="version" id="appVersion"></span>
-    </footer>
+        <!-- Section: Advanced JS -->
+        <section class="category-section collapsed" id="cat-AdvancedJS">
+          <div class="category-header">
+            <svg class="category-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 9l-7 7-7-7"/></svg>
+            <h3>Advanced Javascript</h3>
+          </div>
+          <div class="category-body">
+            <div id="list-AdvancedJS"></div>
+            <button class="btn btn-ghost add-mod-btn" data-type="AdvancedJS" style="align-self: flex-start; margin-top: 4px;">+ Add script</button>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <script src="popup.js"></script>

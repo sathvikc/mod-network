@@ -1,38 +1,19 @@
 /**
- * Popup Script — UI logic for ModNetwork popup.
- * 
- * Handles rule CRUD, tab toggle, views, and code editor line numbers.
- * Communicates with service worker via chrome.runtime.sendMessage.
+ * Popup Script — ModNetwork Ultra-Dense Dashboard UI
  */
 
 // ── State ──────────────────────────────────────────────────────
-let currentView = 'rules'; // 'rules' | 'editor'
-let editingRuleId = null;   // null = creating new rule
-let currentTabId = null;    // Cache the tab ID at popup open time
-let currentRuleHeaders = []; // Temporary state for modifying headers in UI
+let profiles = [];
+let activeProfileId = null;
 
 // ── DOM References ─────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-const rulesView = $('#rulesView');
-const editorView = $('#editorView');
-const rulesList = $('#rulesList');
-const emptyState = $('#emptyState');
-const toggleBtn = $('#toggleBtn');
-const statusDot = $('#statusDot');
-const statusText = $('#statusText');
-const addRuleBtn = $('#addRuleBtn');
-const backBtn = $('#backBtn');
-const saveRuleBtn = $('#saveRuleBtn');
-const deleteRuleBtn = $('#deleteRuleBtn');
-const globalToggle = $('#globalToggle');
-
-// Editor fields
-const ruleName = $('#ruleName');
-const urlPattern = $('#urlPattern');
-const scriptOnBeforeRequest = $('#script-onBeforeRequest');
-const scriptOnResponse = $('#script-onResponse');
+const sidebar = $('#sidebar');
+const profileList = $('#profileList');
+const activeProfileName = $('#activeProfileName');
+const profileToggle = $('#profileToggle');
 
 // ── Messaging ──────────────────────────────────────────────────
 async function sendMessage(message) {
@@ -41,387 +22,274 @@ async function sendMessage(message) {
 
 // ── Initialize ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  // Show version from manifest
-  const manifest = chrome.runtime.getManifest();
-  const appVersion = $('#appVersion');
-  if (appVersion) appVersion.textContent = `v${manifest.version}`;
-
-  // Cache the active tab ID immediately — this is the tab the user was on
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab) {
-    currentTabId = tab.id;
-  }
-  
-  await initTabStatus();
-  await loadRules();
-  await loadGlobalToggle();
+  await loadData();
   setupEventListeners();
-  setupCodeEditors();
 });
 
-// ── Tab Status ─────────────────────────────────────────────────
-async function initTabStatus() {
-  if (!currentTabId) return;
-  const response = await sendMessage({ type: 'GET_TAB_STATUS', tabId: currentTabId });
-  updateTabStatusUI(response.attached);
-}
-
-function updateTabStatusUI(attached) {
-  if (attached) {
-    statusDot.classList.add('active');
-    statusText.textContent = 'Active';
-    toggleBtn.classList.add('active');
-  } else {
-    statusDot.classList.remove('active');
-    statusText.textContent = 'Inactive';
-    toggleBtn.classList.remove('active');
+async function loadData(preserveActiveId = null) {
+  const res = await sendMessage({ type: 'GET_PROFILES' });
+  profiles = res.profiles || [];
+  
+  if (profiles.length === 0) {
+    activeProfileId = null;
+  } else if (!activeProfileId || !profiles.find(p => p.id === activeProfileId)) {
+    activeProfileId = preserveActiveId || profiles[0].id;
   }
+
+  renderSidebar();
+  renderMain();
 }
 
-// ── Rules ──────────────────────────────────────────────────────
-async function loadRules() {
-  const response = await sendMessage({ type: 'GET_RULES' });
-  const rules = response.rules || [];
-  renderRules(rules);
+// ── Rendering ──────────────────────────────────────────────────
+
+function renderSidebar() {
+  profileList.innerHTML = '';
+  profiles.forEach(p => {
+    const el = document.createElement('div');
+    const color = p.color || 'var(--accent-primary)';
+    
+    // Auto-generate initials for collapsed view
+    const initials = p.name ? p.name.substring(0, 2).toUpperCase() : 'W';
+
+    el.className = `profile-item ${p.id === activeProfileId ? 'active' : ''} ${p.enabled ? 'enabled' : ''}`;
+    el.innerHTML = `
+      <div class="profile-dot" style="background: ${color}; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; width: 24px; height: 24px; border-radius: 4px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">
+        ${sidebar.classList.contains('collapsed') ? initials : ''}
+      </div>
+      <span class="profile-name">${p.name}</span>
+    `;
+    el.addEventListener('click', () => {
+      activeProfileId = p.id;
+      renderSidebar();
+      renderMain();
+    });
+    profileList.appendChild(el);
+  });
 }
 
-function renderRules(rules) {
-  rulesList.innerHTML = '';
-
-  if (rules.length === 0) {
-    emptyState.style.display = 'flex';
+function renderMain() {
+  const activeProfile = profiles.find(p => p.id === activeProfileId);
+  
+  if (!activeProfile) {
+    activeProfileName.textContent = 'No Workspace Selected';
+    profileToggle.disabled = true;
+    $$('.category-body > div[id^="list-"]').forEach(el => el.innerHTML = '');
     return;
   }
 
-  emptyState.style.display = 'none';
+  activeProfileName.textContent = activeProfile.name;
+  profileToggle.disabled = false;
+  profileToggle.checked = activeProfile.enabled;
 
-  rules.forEach(rule => {
-    const card = document.createElement('div');
-    card.className = `rule-card${rule.enabled ? '' : ' disabled'}`;
-    card.dataset.ruleId = rule.id;
+  const listMap = {
+    'ModifyHeader': $('#list-ModifyHeader'),
+    'Redirect': $('#list-Redirect'),
+    'AdvancedJS': $('#list-AdvancedJS')
+  };
+  Object.values(listMap).forEach(el => el.innerHTML = '');
 
-    // Determine which scripts are set
-    const hasReq = !!rule.scripts?.onBeforeRequest;
-    const hasRes = !!rule.scripts?.onResponse;
+  const mods = activeProfile.mods || [];
+  
+  // Render Dense Rows
+  mods.forEach((mod, index) => {
+    const container = listMap[mod.type];
+    if (!container) return;
 
-    card.innerHTML = `
-      <label class="toggle-switch rule-toggle" title="Enable/disable rule">
-        <input type="checkbox" ${rule.enabled ? 'checked' : ''} data-action="toggle" data-id="${rule.id}">
-        <span class="toggle-track"></span>
-      </label>
-      <div class="rule-info" data-action="edit" data-id="${rule.id}">
-        <div class="rule-name">${escapeHtml(rule.name)}</div>
-        <div class="rule-pattern">${escapeHtml(rule.match?.urlPattern || '*')}</div>
+    const wrapper = document.createElement('div');
+    const matchUrl = mod.match?.urlPattern || '*://*/*';
+    
+    // Build specific row inputs based on type
+    let rowContent = '';
+    let submenuContent = '';
+
+    if (mod.type === 'ModifyHeader') {
+      const h = mod.headers && mod.headers[0] ? mod.headers[0] : { name: '', value: '', operation: 'set' };
+      rowContent = `
+        <input type="text" class="form-input flex-1 mod-h-name" data-index="${index}" value="${h.name}" placeholder="Header Name">
+        <input type="text" class="form-input flex-2 mod-h-value" data-index="${index}" value="${h.value}" placeholder="Value">
+      `;
+      submenuContent = `
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label class="form-label">Behavior</label>
+          <select class="form-input mod-h-op" data-index="${index}" style="width: 150px;">
+            <option value="set" ${h.operation==='set'?'selected':''}>Override Value</option>
+            <option value="append" ${h.operation==='append'?'selected':''}>Append Value</option>
+            <option value="remove" ${h.operation==='remove'?'selected':''}>Remove Header</option>
+          </select>
+        </div>
+      `;
+    } else if (mod.type === 'Redirect') {
+      rowContent = `
+        <input type="text" class="form-input flex-1 mod-redir" data-index="${index}" value="${mod.redirectUrl || ''}" placeholder="Destination URL">
+      `;
+    } else if (mod.type === 'AdvancedJS') {
+      rowContent = `
+        <span style="flex:1; font-family: monospace; color: var(--text-secondary); padding: 4px;">Scripts must be edited in submenu.</span>
+      `;
+      submenuContent = `
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label class="form-label">onResponse Javascript</label>
+          <textarea class="form-input mod-js" data-index="${index}" placeholder="context.response.body = 'mock';">${mod.scripts?.onResponse || ''}</textarea>
+        </div>
+      `;
+    }
+
+    // Wrap row and submenu: [✓] [rowContent] [X] [⋮]
+    wrapper.innerHTML = `
+      <div class="dense-row">
+        <input type="checkbox" class="native-checkbox mod-toggle" data-index="${index}" ${mod.enabled ? 'checked' : ''}>
+        ${rowContent}
+        <button class="icon-btn danger-text mod-delete" data-index="${index}" title="Delete" style="width:20px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <button class="icon-btn mod-submenu-btn" title="Advanced Options">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12h.01M12 6h.01M12 18h.01"/></svg>
+        </button>
       </div>
-      <div class="rule-badges">
-        ${hasReq ? '<span class="badge req">REQ</span>' : ''}
-        ${hasRes ? '<span class="badge res">RES</span>' : ''}
+
+      <div class="submenu-container">
+        <div class="submenu-grid">
+          <div class="submenu-label">URL Filter</div>
+          <div style="display:flex; gap:8px;">
+            <select class="form-input mod-url-type" data-index="${index}" style="width:90px;">
+              <option value="wildcard" ${mod.match?.type === 'wildcard' || !mod.match?.type ? 'selected' : ''}>Wildcard</option>
+              <option value="regex" ${mod.match?.type === 'regex' ? 'selected' : ''}>Regex</option>
+            </select>
+            <input type="text" class="form-input mod-url flex-1" data-index="${index}" value="${matchUrl}" placeholder="*://*/*">
+          </div>
+
+          <div class="submenu-label">Description</div>
+          <input type="text" class="form-input" data-index="${index}" value="${mod.name || ''}" placeholder="Rule notes...">
+
+          ${submenuContent}
+        </div>
       </div>
     `;
 
-    rulesList.appendChild(card);
+    container.appendChild(wrapper);
+
+    // Submenu toggling
+    const rowEl = wrapper.querySelector('.dense-row');
+    const submenuBtn = wrapper.querySelector('.mod-submenu-btn');
+    const submenuEl = wrapper.querySelector('.submenu-container');
+    
+    submenuBtn.addEventListener('click', () => {
+      const isOpen = submenuEl.classList.contains('open');
+      submenuEl.classList.toggle('open', !isOpen);
+      rowEl.classList.toggle('has-submenu', !isOpen);
+    });
+  });
+
+  bindRowEvents();
+}
+
+async function saveActiveProfile() {
+  if (!activeProfileId) return;
+  const activeProfile = profiles.find(p => p.id === activeProfileId);
+  await sendMessage({ type: 'UPDATE_PROFILE', profileId: activeProfileId, changes: { mods: activeProfile.mods } });
+}
+
+function bindRowEvents() {
+  const activeProfile = profiles.find(p => p.id === activeProfileId);
+  if (!activeProfile) return;
+
+  // Realtime saving on 'change' for any inputs
+  const triggerSave = async (e) => {
+    const idx = parseInt(e.target.dataset.index);
+    if (isNaN(idx)) return;
+    const mod = activeProfile.mods[idx];
+    const wrapper = e.target.closest('div').parentElement.closest('div').parentElement; // Get the wrapper
+    
+    // Determine what field changed
+    if (e.target.classList.contains('mod-toggle')) {
+      mod.enabled = e.target.checked;
+    } else if (e.target.classList.contains('mod-h-name') || e.target.classList.contains('mod-h-value') || e.target.classList.contains('mod-h-op')) {
+      if (!mod.headers) mod.headers = [{}];
+      mod.headers[0].name = wrapper.querySelector('.mod-h-name').value;
+      mod.headers[0].value = wrapper.querySelector('.mod-h-value').value;
+      mod.headers[0].operation = wrapper.querySelector('.mod-h-op')?.value || 'set';
+      mod.headers[0].stage = 'Request';
+    } else if (e.target.classList.contains('mod-redir')) {
+      mod.redirectUrl = e.target.value;
+    } else if (e.target.classList.contains('mod-js')) {
+      if (!mod.scripts) mod.scripts = {};
+      mod.scripts.onResponse = e.target.value;
+    } else if (e.target.classList.contains('mod-url') || e.target.classList.contains('mod-url-type')) {
+      mod.match = mod.match || { resourceTypes: ['Document', 'XHR', 'Fetch'] };
+      mod.match.type = wrapper.querySelector('.mod-url-type').value;
+      mod.match.urlPattern = wrapper.querySelector('.mod-url').value;
+    }
+
+    await saveActiveProfile();
+  };
+
+  $$('input.form-input, select.form-input, textarea.form-input, .mod-toggle').forEach(el => {
+    el.addEventListener('change', triggerSave);
+  });
+
+  $$('.mod-delete').forEach(el => {
+    el.addEventListener('click', async (e) => {
+      const idx = parseInt(e.currentTarget.dataset.index);
+      activeProfile.mods.splice(idx, 1);
+      await saveActiveProfile();
+      renderMain();
+    });
   });
 }
 
 // ── Event Listeners ────────────────────────────────────────────
 function setupEventListeners() {
-  // Toggle interception on current tab
-  toggleBtn.addEventListener('click', async () => {
-    if (!currentTabId) {
-      console.warn('[ModNetwork Popup] No active tab ID cached');
-      statusText.textContent = 'No tab';
-      return;
-    }
 
-    console.log('[ModNetwork Popup] Toggle clicked, tabId:', currentTabId);
-    toggleBtn.disabled = true;
-    statusText.textContent = 'Connecting...';
-    
-    try {
-      const response = await sendMessage({ type: 'TOGGLE_TAB', tabId: currentTabId });
-      console.log('[ModNetwork Popup] Toggle response:', JSON.stringify(response));
-      
-      if (response.error) {
-        statusText.textContent = 'Error!';
-        console.error('[ModNetwork Popup] Toggle failed:', response.error);
-        // Show error briefly
-        setTimeout(() => updateTabStatusUI(response.attached), 2000);
-      } else {
-        updateTabStatusUI(response.attached);
-      }
-    } catch (error) {
-      console.error('[ModNetwork Popup] Toggle error:', error);
-      statusText.textContent = 'Error!';
-    } finally {
-      toggleBtn.disabled = false;
-    }
+  $('#sidebarToggleBtn').addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+    renderSidebar(); // Update initials logic
   });
 
-  // Add new rule
-  addRuleBtn.addEventListener('click', () => {
-    editingRuleId = null;
-    clearEditor();
-    showView('editor');
-    deleteRuleBtn.style.display = 'none';
-  });
-
-  // Back to rules list
-  backBtn.addEventListener('click', () => {
-    showView('rules');
-    loadRules();
-  });
-
-  // Save rule
-  saveRuleBtn.addEventListener('click', saveCurrentRule);
-
-  // Delete rule
-  deleteRuleBtn.addEventListener('click', deleteCurrentRule);
-
-  // Global toggle
-  globalToggle.addEventListener('change', async () => {
-    await sendMessage({ type: 'SET_GLOBAL_ENABLED', enabled: globalToggle.checked });
-  });
-
-  // Rule list delegation (toggle & edit clicks)
-  rulesList.addEventListener('click', async (e) => {
-    const target = e.target.closest('[data-action]');
-    if (!target) return;
-
-    const action = target.dataset.action;
-    const id = target.dataset.id;
-
-    if (action === 'toggle') {
-      e.stopPropagation();
-      await sendMessage({ type: 'TOGGLE_RULE', ruleId: id });
-      await loadRules();
-    } else if (action === 'edit') {
-      await openRuleEditor(id);
-    }
-  });
-
-  // Rule type switcher
-  const ruleTypeSel = $('#ruleType');
-  ruleTypeSel.addEventListener('change', () => {
-    $$('.type-section').forEach(el => el.style.display = 'none');
-    const selected = ruleTypeSel.value;
-    $(`#section-${selected}`).style.display = 'block';
-  });
-
-  // Add header button
-  $('#addHeaderBtn').addEventListener('click', () => {
-    currentRuleHeaders.push({ name: '', value: '', operation: 'set', stage: 'Request' });
-    renderHeaders();
-  });
-
-  // Script tab switching
-  $$('.script-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const tabName = tab.dataset.tab;
-      $$('.script-tab').forEach(t => t.classList.remove('active'));
-      $$('.script-panel').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      $(`#section-AdvancedJS #panel-${tabName}`).classList.add('active');
+  // Category Accordions
+  $$('.category-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      const section = e.currentTarget.closest('.category-section');
+      section.classList.toggle('collapsed');
     });
   });
-}
 
-function renderHeaders() {
-  const container = $('#headerList');
-  container.innerHTML = '';
-  currentRuleHeaders.forEach((h, index) => {
-    const row = document.createElement('div');
-    row.className = 'header-row';
-    row.style = 'display: flex; gap: 8px; margin-bottom: 8px; align-items: center;';
-    
-    row.innerHTML = `
-      <select class="form-input" style="width: auto; padding: 4px;" onchange="currentRuleHeaders[${index}].stage = this.value">
-        <option value="Request" ${h.stage === 'Request' ? 'selected' : ''}>Req</option>
-        <option value="Response" ${h.stage === 'Response' ? 'selected' : ''}>Res</option>
-      </select>
-      <select class="form-input" style="width: auto; padding: 4px;" onchange="currentRuleHeaders[${index}].operation = this.value; renderHeaders()">
-        <option value="set" ${h.operation === 'set' ? 'selected' : ''}>Set</option>
-        <option value="append" ${h.operation === 'append' ? 'selected' : ''}>Append</option>
-        <option value="remove" ${h.operation === 'remove' ? 'selected' : ''}>Remove</option>
-      </select>
-      <input type="text" class="form-input" placeholder="Header Name" value="${h.name}" oninput="currentRuleHeaders[${index}].name = this.value">
-      ${h.operation !== 'remove' ? `<input type="text" class="form-input" placeholder="Value" value="${h.value}" oninput="currentRuleHeaders[${index}].value = this.value">` : ''}
-      <button class="btn btn-sm btn-danger" style="padding: 4px 8px;" onclick="currentRuleHeaders.splice(${index}, 1); renderHeaders()">X</button>
-    `;
-    container.appendChild(row);
-  });
-}
-
-// ── Editor ─────────────────────────────────────────────────────
-async function openRuleEditor(ruleId) {
-  const response = await sendMessage({ type: 'GET_RULE', ruleId });
-  if (!response.rule) return;
-
-  editingRuleId = ruleId;
-  const rule = response.rule;
-
-  $('#ruleType').value = rule.type || 'AdvancedJS';
-  $('#ruleType').dispatchEvent(new Event('change'));
-
-  ruleName.value = rule.name || '';
-  urlPattern.value = rule.match?.urlPattern || '*://*/*';
-
-  // Set resource type checkboxes
-  const types = rule.match?.resourceTypes || [];
-  $$('#resourceTypes input[type="checkbox"]').forEach(cb => {
-    cb.checked = types.includes(cb.value);
+  $('#addProfileBtn').addEventListener('click', async () => {
+    const res = await sendMessage({ type: 'SAVE_PROFILE', profileData: { name: 'New Workspace' } });
+    await loadData(res.profile.id);
   });
 
-  // Set specific fields
-  scriptOnBeforeRequest.value = rule.scripts?.onBeforeRequest || '';
-  scriptOnResponse.value = rule.scripts?.onResponse || '';
-  $('#redirectUrl').value = rule.redirectUrl || '';
-  
-  currentRuleHeaders = Array.isArray(rule.headers) ? JSON.parse(JSON.stringify(rule.headers)) : [];
-  renderHeaders();
-
-  // Update line numbers
-  updateLineNumbers('onBeforeRequest');
-  updateLineNumbers('onResponse');
-
-  deleteRuleBtn.style.display = 'inline-flex';
-  showView('editor');
-}
-
-function clearEditor() {
-  $('#ruleType').value = 'AdvancedJS';
-  $('#ruleType').dispatchEvent(new Event('change'));
-  
-  ruleName.value = '';
-  urlPattern.value = '*://*/*';
-  scriptOnBeforeRequest.value = '';
-  scriptOnResponse.value = '';
-  $('#redirectUrl').value = '';
-  currentRuleHeaders = [];
-  renderHeaders();
-
-  // Reset resource types to defaults
-  $$('#resourceTypes input[type="checkbox"]').forEach(cb => {
-    cb.checked = ['Document', 'XHR', 'Fetch'].includes(cb.value);
+  $('#deleteProfileBtn').addEventListener('click', async () => {
+    if (!activeProfileId) return;
+    if (confirm('Delete this workspace?')) {
+      await sendMessage({ type: 'DELETE_PROFILE', profileId: activeProfileId });
+      activeProfileId = null;
+      await loadData();
+    }
   });
 
-  updateLineNumbers('onBeforeRequest');
-  updateLineNumbers('onResponse');
-
-  // Show onResponse tab by default (more common use case)
-  $$('.script-tab').forEach(t => t.classList.remove('active'));
-  $$('.script-panel').forEach(p => p.classList.remove('active'));
-  $('[data-tab="onResponse"]').classList.add('active');
-  $('#panel-onResponse').classList.add('active');
-}
-
-async function saveCurrentRule() {
-  const type = $('#ruleType').value;
-  const name = ruleName.value.trim() || 'Untitled Rule';
-  const pattern = urlPattern.value.trim() || '*://*/*';
-
-  const resourceTypes = [];
-  $$('#resourceTypes input[type="checkbox"]:checked').forEach(cb => {
-    resourceTypes.push(cb.value);
+  profileToggle.addEventListener('change', async (e) => {
+    if (!activeProfileId) return;
+    const activeProfile = profiles.find(p => p.id === activeProfileId);
+    activeProfile.enabled = e.target.checked;
+    await sendMessage({ type: 'UPDATE_PROFILE', profileId: activeProfileId, changes: { enabled: e.target.checked } });
+    renderSidebar();
   });
 
-  const onBeforeRequest = scriptOnBeforeRequest.value.trim() || null;
-  const onResponse = scriptOnResponse.value.trim() || null;
-  const redirectUrl = $('#redirectUrl').value.trim();
-
-  const ruleData = {
-    type,
-    name,
-    match: { urlPattern: pattern, resourceTypes },
-    scripts: { onBeforeRequest, onResponse },
-    redirectUrl,
-    headers: currentRuleHeaders
-  };
-
-  if (editingRuleId) {
-    await sendMessage({ type: 'UPDATE_RULE', ruleId: editingRuleId, changes: ruleData });
-  } else {
-    await sendMessage({ type: 'SAVE_RULE', ruleData });
-  }
-
-  showView('rules');
-  await loadRules();
-}
-
-async function deleteCurrentRule() {
-  if (!editingRuleId) return;
-  if (!confirm('Delete this rule?')) return;
-
-  await sendMessage({ type: 'DELETE_RULE', ruleId: editingRuleId });
-  editingRuleId = null;
-  showView('rules');
-  await loadRules();
-}
-
-// ── View Switching ─────────────────────────────────────────────
-function showView(view) {
-  currentView = view;
-  rulesView.style.display = view === 'rules' ? 'block' : 'none';
-  editorView.style.display = view === 'editor' ? 'block' : 'none';
-}
-
-// ── Code Editor Helpers ────────────────────────────────────────
-function setupCodeEditors() {
-  [scriptOnBeforeRequest, scriptOnResponse].forEach(textarea => {
-    const panel = textarea.id.replace('script-', '');
-
-    // Update line numbers on input
-    textarea.addEventListener('input', () => updateLineNumbers(panel));
-    textarea.addEventListener('scroll', () => syncScroll(panel));
-    textarea.addEventListener('keydown', handleTabKey);
-
-    updateLineNumbers(panel);
+  $$('.add-mod-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      if (!activeProfileId) return;
+      const type = e.target.dataset.type;
+      const activeProfile = profiles.find(p => p.id === activeProfileId);
+      
+      activeProfile.mods.push({
+        id: crypto.randomUUID(),
+        type: type,
+        enabled: true,
+        name: `New ${type}`,
+        createdAt: Date.now()
+      });
+      await saveActiveProfile();
+      renderMain();
+    });
   });
-}
-
-function updateLineNumbers(panel) {
-  const textarea = $(`#script-${panel}`);
-  const lineNumbersEl = $(`#lineNumbers-${panel}`);
-  if (!textarea || !lineNumbersEl) return;
-
-  const lineCount = (textarea.value || '').split('\n').length;
-  const lines = [];
-  for (let i = 1; i <= Math.max(lineCount, 6); i++) {
-    lines.push(`<span class="ln">${i}</span>`);
-  }
-  lineNumbersEl.innerHTML = lines.join('');
-}
-
-function syncScroll(panel) {
-  const textarea = $(`#script-${panel}`);
-  const lineNumbersEl = $(`#lineNumbers-${panel}`);
-  if (textarea && lineNumbersEl) {
-    lineNumbersEl.scrollTop = textarea.scrollTop;
-  }
-}
-
-function handleTabKey(e) {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const textarea = e.target;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
-    textarea.selectionStart = textarea.selectionEnd = start + 2;
-
-    // Trigger input event for line numbers
-    textarea.dispatchEvent(new Event('input'));
-  }
-}
-
-// ── Global Toggle ──────────────────────────────────────────────
-async function loadGlobalToggle() {
-  const response = await sendMessage({ type: 'GET_GLOBAL_ENABLED' });
-  globalToggle.checked = response.enabled !== false;
-}
-
-// ── Utils ──────────────────────────────────────────────────────
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
