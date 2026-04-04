@@ -52,8 +52,10 @@ function createMod(type, overrides = {}) {
   const now = Date.now();
   const base = {
     id: overrides.id || generateId(),
+    name: overrides.name || `New ${type}`,
     type: type, // 'ModifyHeader', 'Redirect', 'AdvancedJS'
     enabled: overrides.enabled !== undefined ? overrides.enabled : true,
+    match: overrides.match !== undefined ? overrides.match : { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
     createdAt: overrides.createdAt || now,
     updatedAt: now
   };
