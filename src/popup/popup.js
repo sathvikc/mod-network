@@ -163,6 +163,7 @@ function renderMain() {
   const listMap = {
     'ModifyHeader': $('#list-ModifyHeader'),
     'Redirect': $('#list-Redirect'),
+    'BlockRequest': $('#list-BlockRequest'),
     'AdvancedJS': $('#list-AdvancedJS')
   };
   Object.values(listMap).forEach(el => el.innerHTML = '');
@@ -205,6 +206,10 @@ function renderMain() {
         <input type="text" class="form-input mod-url flex-1" data-index="${index}" value="${matchUrl}" placeholder="Source URL (e.g. *://*.old.com/*)" style="width: 140px;">
         <span style="color: var(--text-tertiary); font-weight: bold; margin: 0 4px;">→</span>
         <input type="text" class="form-input mod-redir flex-1" data-index="${index}" value="${mod.redirectUrl || ''}" placeholder="Destination URL">
+      `;
+    } else if (mod.type === 'BlockRequest') {
+      rowContent = `
+        <input type="text" class="form-input flex-1 mod-url" data-index="${index}" value="${matchUrl}" placeholder="URL to block (e.g. *://ads.example.com/*)">
       `;
     } else if (mod.type === 'AdvancedJS') {
       rowContent = `
@@ -396,12 +401,15 @@ function setupEventListeners() {
       const type = e.target.dataset.type;
       const activeProfile = profiles.find(p => p.id === activeProfileId);
       
+      // Resource type defaults: BlockRequest matches everything by default (empty = all types).
+      // Header/JS mods default to Document+XHR+Fetch since they're rarely needed for images/fonts.
+      const defaultResourceTypes = type === 'BlockRequest' ? [] : ['Document', 'XHR', 'Fetch'];
       activeProfile.mods.push({
         id: crypto.randomUUID(),
         type: type,
         enabled: true,
         name: `New ${type}`,
-        match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
+        match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: defaultResourceTypes },
         createdAt: Date.now()
       });
       await saveActiveProfile();

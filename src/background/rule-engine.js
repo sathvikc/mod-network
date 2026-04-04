@@ -251,6 +251,8 @@ async function _doSyncDNRRules() {
           }
         } else if (mod.type === 'Redirect' && mod.redirectUrl) {
           addRules.push({ id: dnrId++, priority: 2, action: { type: 'redirect', redirect: { url: mod.redirectUrl } }, condition });
+        } else if (mod.type === 'BlockRequest') {
+          addRules.push({ id: dnrId++, priority: 3, action: { type: 'block' }, condition });
         }
       }
     }
