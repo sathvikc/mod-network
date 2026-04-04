@@ -175,6 +175,7 @@ function renderMain() {
     if (!container) return;
 
     const wrapper = document.createElement('div');
+    wrapper.className = 'mod-wrapper';
     const matchUrl = mod.match?.urlPattern || '*://*/*';
     
     // Build specific row inputs based on type
@@ -182,15 +183,16 @@ function renderMain() {
     let submenuContent = '';
 
     if (mod.type === 'ModifyHeader') {
-      const h = mod.headers && mod.headers[0] ? mod.headers[0] : { name: '', value: '', operation: 'set' };
+      const h = mod.headers && mod.headers[0] ? mod.headers[0] : { name: '', value: '', operation: 'set', stage: 'Request' };
+      const isResponse = h.stage === 'Response';
       rowContent = `
+        <button class="stage-badge ${isResponse ? 'stage-res' : 'stage-req'} mod-h-stage-toggle" data-index="${index}" title="Click to toggle Request / Response">${isResponse ? 'RES' : 'REQ'}</button>
         <input type="text" class="form-input flex-1 mod-h-name" data-index="${index}" value="${h.name}" placeholder="Header Name">
-        <input type="text" class="form-input flex-2 mod-h-value" data-index="${index}" value="${h.value}" placeholder="Value">
+        <input type="text" class="form-input flex-2 mod-h-value" data-index="${index}" value="${h.value || ''}" placeholder="Value">
       `;
       submenuContent = `
         <div class="form-group" style="grid-column: 1 / -1;">
-          <label class="form-label">Behavior</label>
-          <select class="form-input mod-h-op" data-index="${index}" style="width: 150px;">
+          <select class="form-input mod-h-op" data-index="${index}" style="width: 160px;">
             <option value="set" ${h.operation==='set'?'selected':''}>Override Value</option>
             <option value="append" ${h.operation==='append'?'selected':''}>Append Value</option>
             <option value="remove" ${h.operation==='remove'?'selected':''}>Remove Header</option>
@@ -288,22 +290,21 @@ function bindRowEvents() {
   const activeProfile = profiles.find(p => p.id === activeProfileId);
   if (!activeProfile) return;
 
-  // Realtime saving on 'change' for any inputs
+  // Save on change (fires on blur for text, immediately for select/checkbox)
   const triggerSave = async (e) => {
     const idx = parseInt(e.target.dataset.index);
     if (isNaN(idx)) return;
     const mod = activeProfile.mods[idx];
-    const wrapper = e.target.closest('div').parentElement.closest('div').parentElement; // Get the wrapper
-    
-    // Determine what field changed
+    const w = e.target.closest('.mod-wrapper');
+
     if (e.target.classList.contains('mod-toggle')) {
       mod.enabled = e.target.checked;
     } else if (e.target.classList.contains('mod-h-name') || e.target.classList.contains('mod-h-value') || e.target.classList.contains('mod-h-op')) {
       if (!mod.headers) mod.headers = [{}];
-      mod.headers[0].name = wrapper.querySelector('.mod-h-name').value;
-      mod.headers[0].value = wrapper.querySelector('.mod-h-value').value;
-      mod.headers[0].operation = wrapper.querySelector('.mod-h-op')?.value || 'set';
-      mod.headers[0].stage = 'Request';
+      mod.headers[0].name = w.querySelector('.mod-h-name').value;
+      mod.headers[0].value = w.querySelector('.mod-h-value').value;
+      mod.headers[0].operation = w.querySelector('.mod-h-op')?.value || 'set';
+      mod.headers[0].stage = mod.headers[0].stage || 'Request';
     } else if (e.target.classList.contains('mod-redir')) {
       mod.redirectUrl = e.target.value;
     } else if (e.target.classList.contains('mod-js')) {
@@ -311,8 +312,10 @@ function bindRowEvents() {
       mod.scripts.onResponse = e.target.value;
     } else if (e.target.classList.contains('mod-url') || e.target.classList.contains('mod-url-type')) {
       mod.match = mod.match || { resourceTypes: ['Document', 'XHR', 'Fetch'] };
-      mod.match.type = wrapper.querySelector('.mod-url-type').value;
-      mod.match.urlPattern = wrapper.querySelector('.mod-url').value;
+      mod.match.type = w.querySelector('.mod-url-type').value;
+      mod.match.urlPattern = w.querySelector('.mod-url').value;
+    } else if (e.target.classList.contains('mod-desc')) {
+      mod.name = e.target.value;
     }
 
     await saveActiveProfile();
@@ -320,6 +323,22 @@ function bindRowEvents() {
 
   $$('input.form-input, select.form-input, textarea.form-input, .mod-toggle').forEach(el => {
     el.addEventListener('change', triggerSave);
+  });
+
+  // Stage badge toggle — one click to flip REQ ↔ RES
+  $$('.mod-h-stage-toggle').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.index);
+      const mod = activeProfile.mods[idx];
+      if (!mod.headers) mod.headers = [{}];
+      const w = btn.closest('.mod-wrapper');
+      mod.headers[0].stage = mod.headers[0].stage === 'Response' ? 'Request' : 'Response';
+      mod.headers[0].name = w.querySelector('.mod-h-name').value;
+      mod.headers[0].value = w.querySelector('.mod-h-value').value;
+      mod.headers[0].operation = w.querySelector('.mod-h-op')?.value || 'set';
+      await saveActiveProfile();
+      renderMain();
+    });
   });
 
   $$('.mod-delete').forEach(el => {

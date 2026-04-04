@@ -131,6 +131,15 @@ input:checked + .ui-slider:before { transform: translateX(16px); background-colo
 .profile-item.pinned .pin-btn { display: flex; color: var(--accent-primary); }
 .pin-btn:hover { color: var(--text-primary) !important; }
 
+.stage-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 2px 5px; border-radius: 3px; flex-shrink: 0; font-family: var(--font-mono);
+  border: none; cursor: pointer; transition: opacity 150ms ease;
+}
+.stage-badge:hover { opacity: 0.75; }
+.stage-req { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+.stage-res { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+
 /* ── Main Dashboard ── */
 .main-content {
   flex: 1; overflow-y: auto; background: var(--bg-primary);
