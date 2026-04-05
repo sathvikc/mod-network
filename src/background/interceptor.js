@@ -106,7 +106,10 @@ async function handleRequestStage(tabId, requestId, request, rules) {
     if (modifiedRequest.postData !== request.postData) {
       continueParams.postData = btoa(modifiedRequest.postData || '');
     }
-    if (modifiedRequest.headers) {
+    // Only pass headers if they were structurally altered by the user script
+    const originalHeadersJson = JSON.stringify(request.headers || {});
+    const modifiedHeadersJson = JSON.stringify(modifiedRequest.headers || {});
+    if (originalHeadersJson !== modifiedHeadersJson) {
       continueParams.headers = headersObjectToArray(
         typeof modifiedRequest.headers === 'object' && !Array.isArray(modifiedRequest.headers)
           ? modifiedRequest.headers

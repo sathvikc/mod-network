@@ -2,7 +2,7 @@
  * RuleEngine — Matches incoming requests against user-defined Profiles and Mods.
  */
 
-import { getProfiles, getGlobalEnabled, getActiveProfileId } from '../storage/storage-manager.js';
+import { getProfiles, getGlobalEnabled, getActiveProfileId, getAttachedTabs } from '../storage/storage-manager.js';
 
 /**
  * A profile's rules are active if it is explicitly enabled AND it is either
@@ -18,10 +18,31 @@ function isProfileActive(profile, activeProfileId, isFirst = false) {
   return isFirst; // no selection yet — treat first profile as active
 }
 
+function parseSmartUrlPattern(input) {
+  let str = (input || '').trim();
+  if (!str || str === '*' || str === '*://*/*' || str === '<all_urls>') return '^https?:\\/\\/.*$';
+  
+  // Rule: Missing protocol but has domain-like structure
+  if (!str.includes('://') && !str.startsWith('*') && !str.startsWith('/')) {
+    str = '*://*' + str;
+  }
+  
+  // Rule: Path only
+  if (str.startsWith('/')) {
+    str = '*://*' + str;
+  }
+  
+  // Rule: Missing trailing wildcard if it looks like a path or domain
+  if (!str.endsWith('*')) {
+    str = str + '*';
+  }
+  
+  let regexStr = str.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  return '^' + regexStr + '$';
+}
+
 function patternToRegex(pattern) {
-  if (pattern === '<all_urls>' || pattern === '*') return /^https?:\/\/.*/;
-  let regex = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-  return new RegExp('^' + regex + '$', 'i');
+  return new RegExp(parseSmartUrlPattern(pattern), 'i');
 }
 
 function matchesUrl(url, matchObj) {
@@ -182,12 +203,18 @@ async function syncDNRRules() {
 }
 
 async function _doSyncDNRRules() {
-  const [globalEnabled, profiles, activeProfileId] = await Promise.all([
-    getGlobalEnabled(), getProfiles(), getActiveProfileId()
+  const [globalEnabled, profiles, activeProfileId, attachedTabs] = await Promise.all([
+    getGlobalEnabled(), getProfiles(), getActiveProfileId(), getAttachedTabs()
   ]);
 
-  const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existingRules.map(r => r.id);
+  // Clean up any stray dynamic rules from older versions
+  const existingDynamicRules = await chrome.declarativeNetRequest.getDynamicRules();
+  if (existingDynamicRules.length > 0) {
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: existingDynamicRules.map(r => r.id) });
+  }
+
+  const existingSessionRules = await chrome.declarativeNetRequest.getSessionRules();
+  const removeRuleIds = existingSessionRules.map(r => r.id);
 
   const addRules = [];
   let dnrId = 1;
@@ -197,7 +224,8 @@ async function _doSyncDNRRules() {
     return map[cdpType] || 'other';
   };
 
-  if (globalEnabled) {
+  // Only deploy DNR rules if Engine is ON and there are attached tabs! (Tab Restrict)
+  if (globalEnabled && attachedTabs.length > 0) {
     for (const [i, profile] of profiles.entries()) {
       if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
@@ -207,11 +235,13 @@ async function _doSyncDNRRules() {
         const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
         const condition = {};
         
+        // Tab Session Filtering Context!
+        condition.tabIds = attachedTabs;
+        
         let pattern = matchObj.urlPattern || '*://*/*';
         
         if (matchObj.type === 'regex') {
           if (pattern === '*://*/*' || pattern === '<all_urls>') {
-            // If they switched to regex but left the default wildcard string, convert it to a valid regex catch-all
             condition.regexFilter = '.*';
           } else {
             try {
@@ -223,10 +253,7 @@ async function _doSyncDNRRules() {
             }
           }
         } else {
-          if (pattern !== '*://*/*' && pattern !== '<all_urls>') {
-            let regexStr = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-            condition.regexFilter = '^' + regexStr + '$';
-          }
+          condition.regexFilter = parseSmartUrlPattern(pattern);
         }
         
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
@@ -248,19 +275,19 @@ async function _doSyncDNRRules() {
             const action = { type: 'modifyHeaders' };
             if (requestHeaders.length > 0) action.requestHeaders = requestHeaders;
             if (responseHeaders.length > 0) action.responseHeaders = responseHeaders;
-            addRules.push({ id: dnrId++, priority: 1, action, condition });
+            addRules.push({ id: dnrId++, priority: 2, action, condition });
           }
         } else if (mod.type === 'Redirect' && mod.redirectUrl) {
-          addRules.push({ id: dnrId++, priority: 2, action: { type: 'redirect', redirect: { url: mod.redirectUrl } }, condition });
+          addRules.push({ id: dnrId++, priority: 3, action: { type: 'redirect', redirect: { url: mod.redirectUrl } }, condition });
         } else if (mod.type === 'BlockRequest') {
-          addRules.push({ id: dnrId++, priority: 3, action: { type: 'block' }, condition });
+          addRules.push({ id: dnrId++, priority: 4, action: { type: 'block' }, condition });
         }
       }
     }
   }
 
-  await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds, addRules });
-  console.log(`[ModNetwork] DNR Engine Synced: Removed ${removeRuleIds.length}, Added ${addRules.length} rules`);
+  await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds, addRules });
+  console.log(`[ModNetwork] DNR Engine Synced (Session): Removed ${removeRuleIds.length}, Added ${addRules.length} rules. Attached Tabs: ${attachedTabs.join(', ')}`);
   if (addRules.length > 0) {
     console.log(`[ModNetwork] Active DNR Compilation: `, addRules);
   }

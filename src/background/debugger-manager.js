@@ -6,7 +6,7 @@
  */
 
 import { addAttachedTab, removeAttachedTab, isTabAttached, getAttachedTabs } from '../storage/storage-manager.js';
-import { generateFetchPatterns } from './rule-engine.js';
+import { generateFetchPatterns, syncDNRRules } from './rule-engine.js';
 
 const CDP_VERSION = '1.3';
 
@@ -49,6 +49,9 @@ async function attachToTab(tabId, patterns = null) {
 
     // Update extension icon to indicate active state
     await updateIcon(tabId, true);
+    
+    // Sync DNR Session rules to apply to this new tab
+    await syncDNRRules();
 
     return true;
   } catch (error) {
@@ -58,6 +61,7 @@ async function attachToTab(tabId, patterns = null) {
       console.log(`[ModNetwork] Tab ${tabId} was already attached by concurrent call — syncing state`);
       await addAttachedTab(tabId);
       await updateIcon(tabId, true);
+      await syncDNRRules();
       return true;
     }
 
@@ -89,6 +93,7 @@ async function detachFromTab(tabId) {
   // Always clean up tracking state
   await removeAttachedTab(tabId);
   await updateIcon(tabId, false);
+  await syncDNRRules();
   return true;
 }
 
@@ -136,6 +141,7 @@ async function handleDetach(source, reason) {
   console.log(`[ModNetwork] Debugger detached from tab ${source.tabId}, reason: ${reason}`);
   await removeAttachedTab(source.tabId);
   await updateIcon(source.tabId, false);
+  await syncDNRRules();
 }
 
 /**
