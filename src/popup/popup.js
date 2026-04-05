@@ -217,8 +217,12 @@ function renderMain() {
       `;
       submenuContent = `
         <div class="form-group" style="grid-column: 1 / -1;">
-          <label class="form-label">onResponse Javascript</label>
-          <textarea class="form-input mod-js" data-index="${index}" placeholder="context.response.body = 'mock';">${mod.scripts?.onResponse || ''}</textarea>
+          <label class="form-label">onBeforeRequest Javascript <span style="color:var(--text-tertiary);font-weight:normal;">(modify request before it's sent)</span></label>
+          <textarea class="form-input mod-js-req" data-index="${index}" placeholder="// context.request.headers['X-My-Header'] = 'value';&#10;// return context.request;">${mod.scripts?.onBeforeRequest || ''}</textarea>
+        </div>
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label class="form-label">onResponse Javascript <span style="color:var(--text-tertiary);font-weight:normal;">(modify response body/headers)</span></label>
+          <textarea class="form-input mod-js" data-index="${index}" placeholder="// context.response.body = 'mock';&#10;// return context.response;">${mod.scripts?.onResponse || ''}</textarea>
         </div>
       `;
     }
@@ -312,9 +316,12 @@ function bindRowEvents() {
       mod.headers[0].stage = mod.headers[0].stage || 'Request';
     } else if (e.target.classList.contains('mod-redir')) {
       mod.redirectUrl = e.target.value;
+    } else if (e.target.classList.contains('mod-js-req')) {
+      if (!mod.scripts) mod.scripts = {};
+      mod.scripts.onBeforeRequest = e.target.value || null;
     } else if (e.target.classList.contains('mod-js')) {
       if (!mod.scripts) mod.scripts = {};
-      mod.scripts.onResponse = e.target.value;
+      mod.scripts.onResponse = e.target.value || null;
     } else if (e.target.classList.contains('mod-url') || e.target.classList.contains('mod-url-type')) {
       mod.match = mod.match || { resourceTypes: ['Document', 'XHR', 'Fetch'] };
       mod.match.type = w.querySelector('.mod-url-type').value;
