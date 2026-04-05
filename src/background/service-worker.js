@@ -173,21 +173,21 @@ chrome.runtime.onInstalled.addListener(async (details) => {
           type: 'ModifyHeader',
           name: "Test Header",
           enabled: true,
-          match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
+          match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] },
           headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
         },
         {
           type: 'Redirect',
           name: "Test Image Redirect",
           enabled: false,
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: ['Image', 'Fetch'] },
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: [] },
           redirectUrl: 'http://localhost:8765/api/dog.svg'
         },
         {
           type: 'AdvancedJS',
           name: "Local Dev UI Injector",
           enabled: false,
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: [] },
           scripts: {
             onBeforeRequest: null,
             onResponse: responseScript

@@ -177,3 +177,17 @@ Check `PROGRESS.md` for completed milestones and `BACKLOG.md` for the full backl
 2. Popup reads it automatically via `chrome.runtime.getManifest().version`
 
 **When to bump:** After committing a `fix:` or `feat:` change, update the version in `manifest.json` and commit as `chore: bump version to X.Y.Z`.
+
+## Agent Workflow & Testing Checklist
+
+> **AI Agent Instructions**: Follow this strict workflow loop for every task. You must **make the change**, **test the change**, **commit the change**, and then **continue with the next task**.
+
+### Agent Checklist:
+1. [ ] **Make the Change**: Formulate and apply the code changes for the current task.
+2. [ ] **Test the Change**:
+   - [ ] Verify JavaScript syntax and logic.
+   - [ ] Ask the user to **Reload the Extension** in `chrome://extensions` to pick up the new changes (or use the browser subagent to click reload).
+   - [ ] Invoke the `browser_subagent` to open `src/popup/popup.html` and verify the UI rendering.
+   - [ ] Invoke the `browser_subagent` to visit the target test site (e.g., `http://localhost:8765` running via `node test/server.js`) to ensure the interception or feature functions end-to-end.
+3. [ ] **Commit the Change**: Run the included commit script: `node scripts/commit.js "type(scope): message"`. The script handles git staging, committing, and auto-bumping the semantic version in the manifest.
+4. [ ] **Proceed to Next Task**: Read from the BACKLOG.md, begin the next task, and repeat this cycle.

@@ -263,6 +263,9 @@ function renderMain() {
           <input type="hidden" class="mod-url-type" value="${mod.match?.type || 'wildcard'}">
           `}
 
+          <div class="submenu-label" title="Comma-separated DNR resource types (e.g. Document, XHR, Image). Leave empty for All.">Resource Types</div>
+          <input type="text" class="form-input mod-resource-types" data-index="${index}" value="${(mod.match?.resourceTypes || []).join(', ')}" placeholder="e.g. Document, XHR, Image (empty = All)">
+
           <div class="submenu-label">Description</div>
           <input type="text" class="form-input mod-desc" data-index="${index}" value="${mod.name || ''}" placeholder="Rule notes...">
 
@@ -323,9 +326,13 @@ function bindRowEvents() {
       if (!mod.scripts) mod.scripts = {};
       mod.scripts.onResponse = e.target.value || null;
     } else if (e.target.classList.contains('mod-url') || e.target.classList.contains('mod-url-type')) {
-      mod.match = mod.match || { resourceTypes: ['Document', 'XHR', 'Fetch'] };
+      mod.match = mod.match || { resourceTypes: [] };
       mod.match.type = w.querySelector('.mod-url-type').value;
       mod.match.urlPattern = w.querySelector('.mod-url').value;
+    } else if (e.target.classList.contains('mod-resource-types')) {
+      mod.match = mod.match || { resourceTypes: [] };
+      const val = e.target.value.trim();
+      mod.match.resourceTypes = val ? val.split(',').map(s => s.trim()).filter(Boolean) : [];
     } else if (e.target.classList.contains('mod-desc')) {
       mod.name = e.target.value;
     }
@@ -408,9 +415,8 @@ function setupEventListeners() {
       const type = e.target.dataset.type;
       const activeProfile = profiles.find(p => p.id === activeProfileId);
       
-      // Resource type defaults: BlockRequest matches everything by default (empty = all types).
-      // Header/JS mods default to Document+XHR+Fetch since they're rarely needed for images/fonts.
-      const defaultResourceTypes = type === 'BlockRequest' ? [] : ['Document', 'XHR', 'Fetch'];
+      // Default resource types is empty (matches all types).
+      const defaultResourceTypes = [];
       activeProfile.rules.push({
         id: crypto.randomUUID(),
         type: type,
