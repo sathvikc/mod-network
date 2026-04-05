@@ -119,27 +119,7 @@ async function getProfiles() {
     return _cache.profiles;
   }
 
-  let result = await chrome.storage.local.get([STORAGE_KEYS.PROFILES, 'modnetwork_rules']);
-  
-  // Migration logic: If old rules exist but no profiles, wrap them in a profile
-  if (!result[STORAGE_KEYS.PROFILES] && result['modnetwork_rules']) {
-    console.log('[ModNetwork] Migrating legacy rules to Profiles framework...');
-    const legacyRules = result['modnetwork_rules'];
-    
-    // Group all rules into a single default profile
-    const migratedProfile = createProfile({
-      name: "Legacy Rules",
-      rules: legacyRules.map(r => {
-        return createRule(r.type || 'AdvancedJS', r);
-      })
-    });
-    
-    const initialProfiles = [migratedProfile];
-    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: initialProfiles });
-    _cache.profiles = initialProfiles;
-    return initialProfiles;
-  }
-  
+  let result = await chrome.storage.local.get(STORAGE_KEYS.PROFILES);
   let profiles = result[STORAGE_KEYS.PROFILES] || [];
   
   // Migration: migrate `mods` to `rules` and drop `filters`
@@ -157,35 +137,6 @@ async function getProfiles() {
   });
 
   if (needsSave && profiles.length > 0) {
-    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
-  }
-  
-  if (profiles.length === 0) {
-    const defaultProfile = createProfile({
-      name: "Demo Workspace",
-      rules: [
-        createRule('ModifyHeader', {
-          name: "Test Header",
-          match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
-          headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
-        }),
-        createRule('Redirect', {
-          name: "Test Image Redirect",
-          enabled: false,
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: ['Image', 'Fetch'] },
-          redirectUrl: 'http://localhost:8765/api/dog.svg'
-        }),
-        createRule('AdvancedJS', {
-          name: "Local Dev UI Injector",
-          enabled: false,
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
-          scripts: {
-            onResponse: `// Fetch local dev header from our secondary port\nconst localHtml = await fetch("http://localhost:8766/header").then(r => r.text());\n\n// Inject it into the production page HTML\ncontext.response.body = context.response.body.replace(\n  /<!-- HEADER_START -->[\\\\s\\\\S]*?<!-- HEADER_END -->/,\n  localHtml\n);\n\nreturn context.response;`
-          }
-        })
-      ]
-    });
-    profiles = [defaultProfile];
     await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
   }
   

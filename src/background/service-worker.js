@@ -157,13 +157,27 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     ].join('\n');
 
     await saveProfile({
-      name: '🧪 Test Profile (Localhost)',
+      name: "Demo Workspace",
       enabled: true,
       rules: [
         {
-          type: 'AdvancedJS',
-          name: 'Replace Header HTML',
+          type: 'ModifyHeader',
+          name: "Test Header",
           enabled: true,
+          match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
+          headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
+        },
+        {
+          type: 'Redirect',
+          name: "Test Image Redirect",
+          enabled: false,
+          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: ['Image', 'Fetch'] },
+          redirectUrl: 'http://localhost:8765/api/dog.svg'
+        },
+        {
+          type: 'AdvancedJS',
+          name: "Local Dev UI Injector",
+          enabled: false,
           match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
           scripts: {
             onBeforeRequest: null,
