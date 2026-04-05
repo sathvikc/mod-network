@@ -18,17 +18,25 @@ function isProfileActive(profile, activeProfileId, isFirst = false) {
   return isFirst; // no selection yet — treat first profile as active
 }
 
-function parseSmartUrlPattern(input) {
+function escapeRegex(str) {
+  return str.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseSmartUrlPattern(input, tabDomains = []) {
   let str = (input || '').trim();
   if (!str || str === '*' || str === '*://*/*' || str === '<all_urls>') return '^https?:\\/\\/.*$';
   
-  // Rule: Missing protocol but has domain-like structure
-  if (!str.includes('://') && !str.startsWith('*') && !str.startsWith('/')) {
-    str = '*://*' + str;
-  }
-  
-  // Rule: Path only
   if (str.startsWith('/')) {
+    if (tabDomains.length > 0) {
+      const domainGroup = tabDomains.length === 1 ? escapeRegex(tabDomains[0]) : '(' + tabDomains.map(escapeRegex).join('|') + ')';
+      let endRegex = escapeRegex(str);
+      if (!str.endsWith('*')) endRegex += '.*';
+      else endRegex = endRegex.replace(/\\\*$/, '.*');
+      return '^https?:\\/\\/' + domainGroup + endRegex + '$';
+    } else {
+      str = '*://*' + str;
+    }
+  } else if (!str.includes('://') && !str.startsWith('*')) {
     str = '*://*' + str;
   }
   
@@ -41,11 +49,11 @@ function parseSmartUrlPattern(input) {
   return '^' + regexStr + '$';
 }
 
-function patternToRegex(pattern) {
-  return new RegExp(parseSmartUrlPattern(pattern), 'i');
+function patternToRegex(pattern, tabDomains = []) {
+  return new RegExp(parseSmartUrlPattern(pattern, tabDomains), 'i');
 }
 
-function matchesUrl(url, matchObj) {
+function matchesUrl(url, matchObj, tabDomains = []) {
   let pattern = matchObj?.urlPattern || '*://*/*';
   if (matchObj?.type === 'regex') {
     try {
@@ -56,7 +64,7 @@ function matchesUrl(url, matchObj) {
     }
   }
   
-  try { return patternToRegex(pattern).test(url); }
+  try { return patternToRegex(pattern, tabDomains).test(url); }
   catch (e) {
     console.error(`[RuleEngine] Invalid Wildcard for rule: ${pattern}`, e);
     return false;
@@ -71,7 +79,7 @@ function matchesResourceType(resourceType, allowedTypes) {
 /**
  * Find all enabled AdvancedJS Mods from enabled Profiles that match the request.
  */
-async function findMatchingRules(url, resourceType, stage) {
+async function findMatchingRules(url, resourceType, stage, tabDomains = []) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return [];
 
@@ -88,7 +96,7 @@ async function findMatchingRules(url, resourceType, stage) {
       
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
       
-      if (matchesUrl(url, matchObj) && matchesResourceType(resourceType, matchObj.resourceTypes)) {
+      if (matchesUrl(url, matchObj, tabDomains) && matchesResourceType(resourceType, matchObj.resourceTypes)) {
         console.log(`[RuleEngine] Match identified: Profile [${profile.name}] -> Mod [${mod.name || 'Script'}] for URL ${url}`);
         matchingMods.push(mod);
       }
@@ -106,6 +114,11 @@ async function hasAdvancedJSRuleForUrl(url) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return false;
 
+  let tabDomains = [];
+  if (url && url.startsWith('http')) {
+    try { tabDomains = [new URL(url).host]; } catch(e) {}
+  }
+
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
@@ -114,7 +127,7 @@ async function hasAdvancedJSRuleForUrl(url) {
       // Don't attach if no scripts are actually defined — nothing to intercept
       if (!mod.scripts?.onBeforeRequest && !mod.scripts?.onResponse) continue;
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
-      if (matchesUrl(url, matchObj)) return true;
+      if (matchesUrl(url, matchObj, tabDomains)) return true;
     }
   }
   return false;
@@ -127,6 +140,11 @@ async function isAnyRuleActiveForUrl(url) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return false;
 
+  let tabDomains = [];
+  if (url && url.startsWith('http')) {
+    try { tabDomains = [new URL(url).host]; } catch(e) {}
+  }
+
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
@@ -134,7 +152,7 @@ async function isAnyRuleActiveForUrl(url) {
     for (const mod of profile.rules) {
       if (!mod.enabled) continue;
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
-      if (matchesUrl(url, matchObj)) return true;
+      if (matchesUrl(url, matchObj, tabDomains)) return true;
     }
   }
   return false;
@@ -224,8 +242,17 @@ async function _doSyncDNRRules() {
     return map[cdpType] || 'other';
   };
 
-  // Only deploy DNR rules if Engine is ON and there are attached tabs! (Tab Restrict)
   if (globalEnabled && attachedTabs.length > 0) {
+    const attachedTabDomains = [];
+    for (const tabId of attachedTabs) {
+      try {
+        const t = await chrome.tabs.get(tabId);
+        if (t && t.url && t.url.startsWith('http')) {
+          attachedTabDomains.push(new URL(t.url).host);
+        }
+      } catch(e) {}
+    }
+
     for (const [i, profile] of profiles.entries()) {
       if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
@@ -253,7 +280,7 @@ async function _doSyncDNRRules() {
             }
           }
         } else {
-          condition.regexFilter = parseSmartUrlPattern(pattern);
+          condition.regexFilter = parseSmartUrlPattern(pattern, attachedTabDomains);
         }
         
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {

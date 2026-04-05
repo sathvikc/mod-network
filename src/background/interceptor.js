@@ -48,8 +48,14 @@ async function handleRequestPaused(source, params) {
   console.log(`[ModNetwork] ⚡ requestPaused: ${stage} | ${resourceType} | ${request.url}`);
 
   try {
-    const matchingRules = await findMatchingRules(request.url, resourceType, stage);
-    console.log(`[ModNetwork] Matching rules: ${matchingRules.length} for ${request.url}`);
+    const tab = await chrome.tabs.get(tabId);
+    let tabDomains = [];
+    if (tab && tab.url && tab.url.startsWith('http')) {
+      tabDomains.push(new URL(tab.url).host);
+    }
+
+    const matchingRules = await findMatchingRules(request.url, resourceType, stage, tabDomains);
+    console.log(`[ModNetwork] Matching rules: ${matchingRules.length} for ${request.url} (Host: ${tabDomains.join()})`);
 
     if (matchingRules.length === 0) {
       await continueUnmodified(tabId, requestId);
