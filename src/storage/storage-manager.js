@@ -27,6 +27,23 @@ const _cache = {
   activeProfileId: undefined
 };
 
+// ── Write Mutex ────────────────────────────────────────────────────────
+// Serializes writes so multiple parallel callers (e.g., fast UI clicks, background scripts) 
+// don't overwrite each other's changes in the read-modify-write cycle.
+let _profileWriteLock = Promise.resolve();
+
+async function withProfileWriteLock(fn) {
+  let release;
+  const currentLock = _profileWriteLock;
+  _profileWriteLock = new Promise(r => release = r);
+  try {
+    await currentLock;
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 /**
  * Invalidate cache when storage changes from another context (e.g. popup).
  */
@@ -148,55 +165,63 @@ async function getProfiles() {
  * Save a new profile.
  */
 async function saveProfile(profileData) {
-  const profiles = await getProfiles();
-  const profile = createProfile(profileData);
-  profiles.push(profile);
-  await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
-  _cache.profiles = profiles;
-  return profile;
+  return withProfileWriteLock(async () => {
+    const profiles = await getProfiles();
+    const profile = createProfile(profileData);
+    profiles.push(profile);
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+    _cache.profiles = profiles;
+    return profile;
+  });
 }
 
 /**
  * Update a profile.
  */
 async function updateProfile(id, changes) {
-  const profiles = await getProfiles();
-  const index = profiles.findIndex(p => p.id === id);
-  if (index === -1) return null;
+  return withProfileWriteLock(async () => {
+    const profiles = await getProfiles();
+    const index = profiles.findIndex(p => p.id === id);
+    if (index === -1) return null;
 
-  const existing = profiles[index];
-  profiles[index] = { ...existing, ...changes, updatedAt: Date.now() };
+    const existing = profiles[index];
+    profiles[index] = { ...existing, ...changes, updatedAt: Date.now() };
 
-  await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
-  _cache.profiles = profiles;
-  return profiles[index];
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+    _cache.profiles = profiles;
+    return profiles[index];
+  });
 }
 
 /**
  * Delete a profile.
  */
 async function deleteProfile(id) {
-  let profiles = await getProfiles();
-  const originalLength = profiles.length;
-  profiles = profiles.filter(p => p.id !== id);
-  if (profiles.length < originalLength) {
-    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
-    _cache.profiles = profiles;
-  }
+  return withProfileWriteLock(async () => {
+    let profiles = await getProfiles();
+    const originalLength = profiles.length;
+    profiles = profiles.filter(p => p.id !== id);
+    if (profiles.length < originalLength) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+      _cache.profiles = profiles;
+    }
+  });
 }
 
 /**
  * Toggle profile status safely.
  */
 async function toggleProfile(id) {
-  const profiles = await getProfiles();
-  const index = profiles.findIndex(p => p.id === id);
-  if (index !== -1) {
-    profiles[index].enabled = !profiles[index].enabled;
-    profiles[index].updatedAt = Date.now();
-    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
-    _cache.profiles = profiles;
-  }
+  return withProfileWriteLock(async () => {
+    const profiles = await getProfiles();
+    const index = profiles.findIndex(p => p.id === id);
+    if (index !== -1) {
+      profiles[index].enabled = !profiles[index].enabled;
+      profiles[index].updatedAt = Date.now();
+      await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+      _cache.profiles = profiles;
+    }
+  });
 }
 
 // ── Active Profile ─────────────────────────────────────────────────────
