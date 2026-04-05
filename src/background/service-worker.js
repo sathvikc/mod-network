@@ -122,7 +122,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
  * cause the popup to query tab status before detach has finished.
  */
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
-  if (namespace === 'local' && (changes.modnetwork_profiles || changes.modnetwork_global_enabled || changes.modnetwork_active_profile_id)) {
+  if (namespace === 'local' && (changes.profiles || changes.global_enabled || changes.active_profile_id)) {
     await syncDNRRules();
   }
 });

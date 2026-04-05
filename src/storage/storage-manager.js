@@ -9,17 +9,24 @@
  * The cache is warmed on first read and kept in sync via chrome.storage.onChanged.
  */
 
-const STORAGE_KEYS = {
+const LEGACY_KEYS = {
   PROFILES: 'modnetwork_profiles',
   GLOBAL_ENABLED: 'modnetwork_global_enabled',
   ACTIVE_PROFILE_ID: 'modnetwork_active_profile_id',
   SCHEMA_VERSION: 'modnetwork_schema_version'
 };
 
-const TARGET_SCHEMA_VERSION = 2;
+const STORAGE_KEYS = {
+  PROFILES: 'profiles',
+  GLOBAL_ENABLED: 'global_enabled',
+  ACTIVE_PROFILE_ID: 'active_profile_id',
+  SCHEMA_VERSION: 'schema_version'
+};
+
+const TARGET_SCHEMA_VERSION = 3;
 
 const SESSION_KEYS = {
-  ATTACHED_TABS: 'modnetwork_attached_tabs'
+  ATTACHED_TABS: 'attached_tabs'
 };
 
 // ── In-Memory Cache ────────────────────────────────────────────────────
@@ -216,15 +223,16 @@ async function toggleProfile(id) {
  */
 async function runMigrations() {
   return withProfileWriteLock(async () => {
-    let result = await chrome.storage.local.get([STORAGE_KEYS.SCHEMA_VERSION, STORAGE_KEYS.PROFILES]);
-    let currentVersion = result[STORAGE_KEYS.SCHEMA_VERSION] || 1;
+    let legacyData = await chrome.storage.local.get(Object.values(LEGACY_KEYS));
+    let newData = await chrome.storage.local.get(Object.values(STORAGE_KEYS));
+    
+    let currentVersion = newData[STORAGE_KEYS.SCHEMA_VERSION] || legacyData[LEGACY_KEYS.SCHEMA_VERSION] || 1;
     
     if (currentVersion >= TARGET_SCHEMA_VERSION) return;
     
-    let profiles = result[STORAGE_KEYS.PROFILES] || [];
-
     if (currentVersion < 2) {
       console.log('[StorageManager] Running migration v1 -> v2 (mods to rules)...');
+      let profiles = legacyData[LEGACY_KEYS.PROFILES] || [];
       let needsSave = false;
       profiles.forEach(p => {
         if (p.mods !== undefined) {
@@ -238,12 +246,45 @@ async function runMigrations() {
         }
       });
       if (needsSave && profiles.length > 0) {
-        await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+        await chrome.storage.local.set({ [LEGACY_KEYS.PROFILES]: profiles });
+        // Re-read to ensure our legacy cascade is fresh
+        legacyData[LEGACY_KEYS.PROFILES] = profiles;
       }
       currentVersion = 2;
     }
 
-    // Persist new version
+    if (currentVersion < 3) {
+      console.log('[StorageManager] Running migration v2 -> v3 (silent backup + key prefix removal)...');
+      
+      const legacyProfiles = legacyData[LEGACY_KEYS.PROFILES] || [];
+
+      // Silent Backup of the entire profiles list before prefix transition
+      if (legacyProfiles.length > 0) {
+        await chrome.storage.local.set({ 'modnetwork_profiles_backup_pre_v3': legacyProfiles });
+        console.log('[StorageManager] Created silent backup at "modnetwork_profiles_backup_pre_v3"');
+      }
+
+      // Transition legacy keys safely to new suffix-less keys
+      const migratedPayload = {
+        [STORAGE_KEYS.PROFILES]: legacyProfiles,
+        [STORAGE_KEYS.SCHEMA_VERSION]: 3
+      };
+      if (legacyData[LEGACY_KEYS.GLOBAL_ENABLED] !== undefined) {
+        migratedPayload[STORAGE_KEYS.GLOBAL_ENABLED] = legacyData[LEGACY_KEYS.GLOBAL_ENABLED];
+      }
+      if (legacyData[LEGACY_KEYS.ACTIVE_PROFILE_ID] !== undefined) {
+        migratedPayload[STORAGE_KEYS.ACTIVE_PROFILE_ID] = legacyData[LEGACY_KEYS.ACTIVE_PROFILE_ID];
+      }
+
+      await chrome.storage.local.set(migratedPayload);
+      
+      // Delete legacy key footprint entirely to avoid double-state
+      await chrome.storage.local.remove(Object.values(LEGACY_KEYS));
+      
+      currentVersion = 3;
+    }
+
+    // Ensure version persists definitively
     await chrome.storage.local.set({ [STORAGE_KEYS.SCHEMA_VERSION]: currentVersion });
     console.log(`[StorageManager] Schema migration complete. Current version: ${currentVersion}`);
   });

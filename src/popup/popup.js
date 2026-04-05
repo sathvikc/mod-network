@@ -74,8 +74,8 @@ async function loadData(preserveActiveId = null) {
     activeProfileId = preserveActiveId;
   } else if (!activeProfileId || !profiles.find(p => p.id === activeProfileId)) {
     // Restore from storage, else fall back to first profile
-    const stored = await chrome.storage.local.get('modnetwork_active_profile_id');
-    const storedId = stored['modnetwork_active_profile_id'];
+    const stored = await chrome.storage.local.get('active_profile_id');
+    const storedId = stored['active_profile_id'];
     activeProfileId = (storedId && profiles.find(p => p.id === storedId)) ? storedId : profiles[0].id;
   }
 
