@@ -3,6 +3,10 @@
  * 
  * Profiles are stored in chrome.storage.local (persistent).
  * Session state (attached tabs, etc.) is stored in chrome.storage.session (ephemeral).
+ * 
+ * An in-memory cache sits in front of chrome.storage.local reads to avoid
+ * hitting storage on every intercepted network request (hot path).
+ * The cache is warmed on first read and kept in sync via chrome.storage.onChanged.
  */
 
 const STORAGE_KEYS = {
@@ -14,6 +18,35 @@ const STORAGE_KEYS = {
 const SESSION_KEYS = {
   ATTACHED_TABS: 'modnetwork_attached_tabs'
 };
+
+// ── In-Memory Cache ────────────────────────────────────────────────────
+// Populated on first read, updated on every write, invalidated via onChanged.
+const _cache = {
+  profiles: undefined,       // undefined = not yet loaded, null/[] = loaded but empty
+  globalEnabled: undefined,
+  activeProfileId: undefined
+};
+
+/**
+ * Invalidate cache when storage changes from another context (e.g. popup).
+ */
+if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace !== 'local') return;
+    if (changes[STORAGE_KEYS.PROFILES]) {
+      _cache.profiles = changes[STORAGE_KEYS.PROFILES].newValue;
+      console.log('[StorageManager] Cache updated: profiles');
+    }
+    if (changes[STORAGE_KEYS.GLOBAL_ENABLED]) {
+      _cache.globalEnabled = changes[STORAGE_KEYS.GLOBAL_ENABLED].newValue;
+      console.log('[StorageManager] Cache updated: globalEnabled');
+    }
+    if (changes[STORAGE_KEYS.ACTIVE_PROFILE_ID]) {
+      _cache.activeProfileId = changes[STORAGE_KEYS.ACTIVE_PROFILE_ID].newValue;
+      console.log('[StorageManager] Cache updated: activeProfileId');
+    }
+  });
+}
 
 /**
  * Generate a unique ID.
@@ -84,6 +117,11 @@ function createMod(type, overrides = {}) {
  * Get all profiles.
  */
 async function getProfiles() {
+  // Return cached profiles if available
+  if (_cache.profiles !== undefined) {
+    return _cache.profiles;
+  }
+
   let result = await chrome.storage.local.get([STORAGE_KEYS.PROFILES, 'modnetwork_rules']);
   
   // Migration logic: If old rules exist but no profiles, wrap them in a profile
@@ -96,16 +134,13 @@ async function getProfiles() {
       name: "Legacy Rules",
       filters: [{ urlPattern: '*://*/*', resourceTypes: [] }],
       mods: legacyRules.map(r => {
-        // Legacy rules had match inside the rule itself.
-        // We'll just map them as best we can. 
-        // For accurate migration, AdvancedJS would need custom handling, but we are in alpha.
         return createMod(r.type || 'AdvancedJS', r);
       })
     });
     
     const initialProfiles = [migratedProfile];
     await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: initialProfiles });
-    // Keep old keys for now just in case, but we read from PROFILES
+    _cache.profiles = initialProfiles;
     return initialProfiles;
   }
   
@@ -122,13 +157,13 @@ async function getProfiles() {
         }),
         createMod('Redirect', {
           name: "Test Image Redirect",
-          enabled: false, // Disabled by default for clean testing
+          enabled: false,
           match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: ['Image', 'Fetch'] },
           redirectUrl: 'http://localhost:8765/api/dog.svg'
         }),
         createMod('AdvancedJS', {
           name: "Local Dev UI Injector",
-          enabled: false, // Disabled by default
+          enabled: false,
           match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
           scripts: {
             onResponse: `// Fetch local dev header from our secondary port\nconst localHtml = await fetch("http://localhost:8766/header").then(r => r.text());\n\n// Inject it into the production page HTML\ncontext.response.body = context.response.body.replace(\n  /<!-- HEADER_START -->[\\\\s\\\\S]*?<!-- HEADER_END -->/,\n  localHtml\n);\n\nreturn context.response;`
@@ -140,6 +175,7 @@ async function getProfiles() {
     await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
   }
   
+  _cache.profiles = profiles;
   return profiles;
 }
 
@@ -151,6 +187,7 @@ async function saveProfile(profileData) {
   const profile = createProfile(profileData);
   profiles.push(profile);
   await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  _cache.profiles = profiles;
   return profile;
 }
 
@@ -166,6 +203,7 @@ async function updateProfile(id, changes) {
   profiles[index] = { ...existing, ...changes, updatedAt: Date.now() };
 
   await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  _cache.profiles = profiles;
   return profiles[index];
 }
 
@@ -178,6 +216,7 @@ async function deleteProfile(id) {
   profiles = profiles.filter(p => p.id !== id);
   if (profiles.length < originalLength) {
     await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+    _cache.profiles = profiles;
   }
 }
 
@@ -191,6 +230,7 @@ async function toggleProfile(id) {
     profiles[index].enabled = !profiles[index].enabled;
     profiles[index].updatedAt = Date.now();
     await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+    _cache.profiles = profiles;
   }
 }
 
@@ -200,8 +240,12 @@ async function toggleProfile(id) {
  * Get the currently selected/active profile ID.
  */
 async function getActiveProfileId() {
+  if (_cache.activeProfileId !== undefined) {
+    return _cache.activeProfileId;
+  }
   const result = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_PROFILE_ID);
-  return result[STORAGE_KEYS.ACTIVE_PROFILE_ID] || null;
+  _cache.activeProfileId = result[STORAGE_KEYS.ACTIVE_PROFILE_ID] || null;
+  return _cache.activeProfileId;
 }
 
 /**
@@ -209,6 +253,7 @@ async function getActiveProfileId() {
  */
 async function setActiveProfileId(id) {
   await chrome.storage.local.set({ [STORAGE_KEYS.ACTIVE_PROFILE_ID]: id });
+  _cache.activeProfileId = id;
 }
 
 // ── Global State ───────────────────────────────────────────────────────
@@ -217,8 +262,12 @@ async function setActiveProfileId(id) {
  * Get the master on/off switch for the extension interception engine.
  */
 async function getGlobalEnabled() {
+  if (_cache.globalEnabled !== undefined) {
+    return _cache.globalEnabled;
+  }
   const result = await chrome.storage.local.get(STORAGE_KEYS.GLOBAL_ENABLED);
-  return result[STORAGE_KEYS.GLOBAL_ENABLED] !== false; // Default true if not set
+  _cache.globalEnabled = result[STORAGE_KEYS.GLOBAL_ENABLED] !== false; // Default true if not set
+  return _cache.globalEnabled;
 }
 
 /**
@@ -226,6 +275,7 @@ async function getGlobalEnabled() {
  */
 async function setGlobalEnabled(enabled) {
   await chrome.storage.local.set({ [STORAGE_KEYS.GLOBAL_ENABLED]: !!enabled });
+  _cache.globalEnabled = !!enabled;
   return !!enabled;
 }
 
