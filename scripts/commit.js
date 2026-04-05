@@ -17,11 +17,21 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// 1. Get commit message
-const message = process.argv.slice(2).join(' ');
+// 1. Get commit message and optional files
+const args = process.argv.slice(2);
+let message = '';
+let files = [];
+const separatorIndex = args.indexOf('--');
+if (separatorIndex !== -1) {
+  message = args.slice(0, separatorIndex).join(' ').trim();
+  files = args.slice(separatorIndex + 1);
+} else {
+  message = args.join(' ').trim();
+}
+
 if (!message) {
   console.error('❌ Error: No commit message provided.');
-  console.log('Usage: node scripts/commit.js "feat: added new feature"');
+  console.log('Usage: node scripts/commit.js "feat: added new feature" [-- path/to/file1 path/to/file2]');
   process.exit(1);
 }
 
@@ -77,8 +87,15 @@ if (bumpType !== 'none') {
 try {
   console.log(`\n⏳ Running git commands...`);
   
-  // Add all changes (including the updated manifest)
-  execSync('git add -A', { stdio: 'inherit' });
+  // Add changes (selective if files provided, otherwise all)
+  if (files.length > 0) {
+    console.log(`\n📋 Staging specified files...`);
+    // Always include manifest.json in case of version bump
+    const filesToStage = [...new Set([...files, 'src/manifest.json'])];
+    execSync(`git add ${filesToStage.join(' ')}`, { stdio: 'inherit' });
+  } else {
+    execSync('git add -A', { stdio: 'inherit' });
+  }
   
   // Commit
   // We wrap the message in quotes to be safe, escaping inner double quotes
