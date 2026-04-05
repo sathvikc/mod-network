@@ -6,7 +6,10 @@
  * worker restarts.
  */
 
-import { handleDetach, syncState, toggleTab, isAttached, attachToTab, detachFromTab, detachAll, updateIcon } from './debugger-manager.js';
+import {
+  handleDetach, syncState, toggleTab, isAttached, attachToTab, detachFromTab, 
+  detachAll, updateIcon, updateActiveDebuggers 
+} from './debugger-manager.js';
 import { handleRequestPaused } from './interceptor.js';
 import {
   getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
@@ -123,7 +126,10 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
  */
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
   if (namespace === 'local' && (changes.profiles || changes.global_enabled || changes.active_profile_id)) {
+    // 1. Sync DNR rules (Redirects, Header modifications, blocks)
     await syncDNRRules();
+    // 2. Sync Debugger rules (Advanced JS active fetch intercepted patterns)
+    await updateActiveDebuggers();
   }
 });
 

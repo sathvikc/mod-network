@@ -183,6 +183,12 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
   }
 
   if (wasModified) {
+    // Strip content-length since we mutated the body size. Chrome will automatically recalculate it.
+    if (modifiedResponse.headers) {
+      delete modifiedResponse.headers['Content-Length'];
+      delete modifiedResponse.headers['content-length'];
+    }
+
     const fulfillParams = {
       requestId,
       responseCode: modifiedResponse.statusCode || statusCode,

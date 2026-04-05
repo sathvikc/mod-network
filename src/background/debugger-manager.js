@@ -195,6 +195,31 @@ async function syncState() {
   }
 }
 
+/**
+ * Re-evaluate rules and update the interception patterns for all attached tabs.
+ * Call this when the user modifies their enabled rules.
+ */
+async function updateActiveDebuggers() {
+  const tabs = await getAttachedTabs();
+  if (tabs.length === 0) return;
+
+  const patterns = await generateFetchPatterns();
+  const fetchParams = {
+    patterns: patterns.length > 0 ? patterns : [{ urlPattern: 'http://255.255.255.255:0/*', requestStage: 'Request' }]
+  };
+
+  const promises = [...tabs].map(async tabId => {
+    try {
+      await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', fetchParams);
+      console.log(`[ModNetwork] Updated Fetch patterns for active tab ${tabId}`);
+    } catch (e) {
+      console.warn(`[ModNetwork] Failed to update active tab ${tabId}: ${e.message}`);
+    }
+  });
+
+  await Promise.allSettled(promises);
+}
+
 export {
   attachToTab,
   detachFromTab,
@@ -204,5 +229,6 @@ export {
   handleDetach,
   sendCommand,
   updateIcon,
-  syncState
+  syncState,
+  updateActiveDebuggers
 };
