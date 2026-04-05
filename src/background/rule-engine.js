@@ -224,7 +224,8 @@ async function _doSyncDNRRules() {
           }
         } else {
           if (pattern !== '*://*/*' && pattern !== '<all_urls>') {
-            condition.urlFilter = pattern;
+            let regexStr = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+            condition.regexFilter = '^' + regexStr + '$';
           }
         }
         

@@ -34,8 +34,10 @@
 }
 
 html, body {
-  width: var(--popup-width);
-  height: var(--popup-max-height);
+  width: 100vw;
+  height: 100vh;
+  min-width: var(--popup-width);
+  min-height: var(--popup-max-height);
   overflow: hidden;
   font-family: var(--font-sans);
   font-size: 13px;
