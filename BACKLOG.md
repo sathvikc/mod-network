@@ -17,6 +17,10 @@ Non-urgent improvements to address when time permits.
 
 - [ ] **Dashboard page**: Open full-tab page for complex config (code editor, logs, settings) — keep popup compact for quick controls (like Automa pattern).
 - [ ] **Profiles**: Group rules into profiles and assign specific profiles to specific tabs vs globally.
+- [ ] **Advanced Environmental Filters UI (Roadmap)**: Support filters like Tab ID, Window ID, Tab Group, Auto-off Timer, and Method filters. Architecturally, consider:
+  - *Pattern A (Profile-Level)*: Workspace has a global `contextFilters: {}` acting as a gatekeeper.
+  - *Pattern B (Rule-Level)*: Highly granular context matches for individual dense-row actions.
+  - *Pattern C (Filter-as-a-Rule-Type)*: Add `{ type: 'TabFilter' }` into the `rules` array itself, acting as a logical "middleware" that drops execution for subsequent rules if conditions aren't met.
 - [ ] **Profile-Level Variables**: Postman-style environment variables (`{{API_BASE}}`, `{{AUTH_TOKEN}}`) on each profile. Rules and scripts interpolate these in URL patterns, header values, and redirect URLs. Enables switching between dev/staging/prod without editing rules.
 - [ ] **cURL / HAR Import**: Auto-generate rule configurations by pasting raw requests from Chrome DevTools (cURL or HAR format).
 - [ ] **Advanced URL Matchers**: Support Wildcard (Contains), Exact Equals, and full Regex matchers for granular rule targeting.
