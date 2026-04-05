@@ -21,6 +21,8 @@ Non-urgent improvements to address when time permits.
   - *Pattern A (Profile-Level)*: Workspace has a global `contextFilters: {}` acting as a gatekeeper.
   - *Pattern B (Rule-Level)*: Highly granular context matches for individual dense-row actions.
   - *Pattern C (Filter-as-a-Rule-Type)*: Add `{ type: 'TabFilter' }` into the `rules` array itself, acting as a logical "middleware" that drops execution for subsequent rules if conditions aren't met.
+    - *Why this is powerful*: It keeps the schema incredibly simple (just one `rules` array). It allows users to control the order (e.g., run a JS modifier first, THEN check a timer, THEN modify headers). It fits beautifully into a drag-and-drop dashboard pipeline.
+    - *Example Pipeline*: `[ { type: 'AdvancedJS' }, { type: 'TimerFilter', expiresAt: 1234 }, { type: 'ModifyHeader' } ]`
 - [ ] **Profile-Level Variables**: Postman-style environment variables (`{{API_BASE}}`, `{{AUTH_TOKEN}}`) on each profile. Rules and scripts interpolate these in URL patterns, header values, and redirect URLs. Enables switching between dev/staging/prod without editing rules.
 - [ ] **cURL / HAR Import**: Auto-generate rule configurations by pasting raw requests from Chrome DevTools (cURL or HAR format).
 - [ ] **Advanced URL Matchers**: Support Wildcard (Contains), Exact Equals, and full Regex matchers for granular rule targeting.
