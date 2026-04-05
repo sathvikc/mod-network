@@ -71,19 +71,16 @@ function createProfile(overrides = {}) {
     color: overrides.color || 'var(--accent-primary)',
     enabled: overrides.enabled !== undefined ? overrides.enabled : true,
     pinned: overrides.pinned || false,
-    filters: overrides.filters || [
-      { urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] }
-    ],
-    mods: overrides.mods || [],
+    rules: overrides.rules || [],
     createdAt: overrides.createdAt || now,
     updatedAt: now
   };
 }
 
 /**
- * Create a new Mod with defaults.
+ * Create a new Rule with defaults.
  */
-function createMod(type, overrides = {}) {
+function createRule(type, overrides = {}) {
   const now = Date.now();
   const base = {
     id: overrides.id || generateId(),
@@ -132,9 +129,8 @@ async function getProfiles() {
     // Group all rules into a single default profile
     const migratedProfile = createProfile({
       name: "Legacy Rules",
-      filters: [{ urlPattern: '*://*/*', resourceTypes: [] }],
-      mods: legacyRules.map(r => {
-        return createMod(r.type || 'AdvancedJS', r);
+      rules: legacyRules.map(r => {
+        return createRule(r.type || 'AdvancedJS', r);
       })
     });
     
@@ -146,22 +142,40 @@ async function getProfiles() {
   
   let profiles = result[STORAGE_KEYS.PROFILES] || [];
   
+  // Migration: migrate `mods` to `rules` and drop `filters`
+  let needsSave = false;
+  profiles.forEach(p => {
+    if (p.mods !== undefined) {
+      if (!p.rules) p.rules = p.mods;
+      delete p.mods;
+      needsSave = true;
+    }
+    if (p.filters !== undefined) {
+      delete p.filters;
+      needsSave = true;
+    }
+  });
+
+  if (needsSave && profiles.length > 0) {
+    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+  }
+  
   if (profiles.length === 0) {
     const defaultProfile = createProfile({
       name: "Demo Workspace",
-      mods: [
-        createMod('ModifyHeader', {
+      rules: [
+        createRule('ModifyHeader', {
           name: "Test Header",
           match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
           headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
         }),
-        createMod('Redirect', {
+        createRule('Redirect', {
           name: "Test Image Redirect",
           enabled: false,
           match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: ['Image', 'Fetch'] },
           redirectUrl: 'http://localhost:8765/api/dog.svg'
         }),
-        createMod('AdvancedJS', {
+        createRule('AdvancedJS', {
           name: "Local Dev UI Injector",
           enabled: false,
           match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] },
@@ -335,7 +349,7 @@ export {
   updateProfile,
   deleteProfile,
   toggleProfile,
-  createMod,
+  createRule,
   getActiveProfileId,
   setActiveProfileId,
   getGlobalEnabled,

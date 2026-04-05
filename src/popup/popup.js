@@ -168,10 +168,10 @@ function renderMain() {
   };
   Object.values(listMap).forEach(el => el.innerHTML = '');
 
-  const mods = activeProfile.mods || [];
+  const rules = activeProfile.rules || [];
   
   // Render Dense Rows
-  mods.forEach((mod, index) => {
+  rules.forEach((mod, index) => {
     const container = listMap[mod.type];
     if (!container) return;
 
@@ -291,7 +291,7 @@ function renderMain() {
 async function saveActiveProfile() {
   if (!activeProfileId) return;
   const activeProfile = profiles.find(p => p.id === activeProfileId);
-  await sendMessage({ type: 'UPDATE_PROFILE', profileId: activeProfileId, changes: { mods: activeProfile.mods } });
+  await sendMessage({ type: 'UPDATE_PROFILE', profileId: activeProfileId, changes: { rules: activeProfile.rules } });
   await initTabStatus();
 }
 
@@ -303,7 +303,7 @@ function bindRowEvents() {
   const triggerSave = async (e) => {
     const idx = parseInt(e.target.dataset.index);
     if (isNaN(idx)) return;
-    const mod = activeProfile.mods[idx];
+    const mod = activeProfile.rules[idx];
     const w = e.target.closest('.mod-wrapper');
 
     if (e.target.classList.contains('mod-toggle')) {
@@ -341,7 +341,7 @@ function bindRowEvents() {
   $$('.mod-h-stage-toggle').forEach(btn => {
     btn.addEventListener('click', async () => {
       const idx = parseInt(btn.dataset.index);
-      const mod = activeProfile.mods[idx];
+      const mod = activeProfile.rules[idx];
       if (!mod.headers) mod.headers = [{}];
       const w = btn.closest('.mod-wrapper');
       mod.headers[0].stage = mod.headers[0].stage === 'Response' ? 'Request' : 'Response';
@@ -356,7 +356,7 @@ function bindRowEvents() {
   $$('.mod-delete').forEach(el => {
     el.addEventListener('click', async (e) => {
       const idx = parseInt(e.currentTarget.dataset.index);
-      activeProfile.mods.splice(idx, 1);
+      activeProfile.rules.splice(idx, 1);
       await saveActiveProfile();
       renderMain();
     });
@@ -411,7 +411,7 @@ function setupEventListeners() {
       // Resource type defaults: BlockRequest matches everything by default (empty = all types).
       // Header/JS mods default to Document+XHR+Fetch since they're rarely needed for images/fonts.
       const defaultResourceTypes = type === 'BlockRequest' ? [] : ['Document', 'XHR', 'Fetch'];
-      activeProfile.mods.push({
+      activeProfile.rules.push({
         id: crypto.randomUUID(),
         type: type,
         enabled: true,

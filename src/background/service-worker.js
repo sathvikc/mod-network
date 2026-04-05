@@ -159,8 +159,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await saveProfile({
       name: '🧪 Test Profile (Localhost)',
       enabled: true,
-      filters: [{ urlPattern: '*://localhost:8765/*', resourceTypes: ['Document'] }],
-      mods: [
+      rules: [
         {
           type: 'AdvancedJS',
           name: 'Replace Header HTML',

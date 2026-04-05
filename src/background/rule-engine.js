@@ -60,7 +60,7 @@ async function findMatchingRules(url, resourceType, stage) {
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
-    for (const mod of profile.mods) {
+    for (const mod of profile.rules) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
       if (stage === 'Request' && !mod.scripts?.onBeforeRequest) continue;
       if (stage === 'Response' && !mod.scripts?.onResponse) continue;
@@ -88,7 +88,7 @@ async function hasAdvancedJSRuleForUrl(url) {
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
-    for (const mod of profile.mods) {
+    for (const mod of profile.rules) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
       // Don't attach if no scripts are actually defined — nothing to intercept
       if (!mod.scripts?.onBeforeRequest && !mod.scripts?.onResponse) continue;
@@ -110,7 +110,7 @@ async function isAnyRuleActiveForUrl(url) {
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
-    for (const mod of profile.mods) {
+    for (const mod of profile.rules) {
       if (!mod.enabled) continue;
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*' };
       if (matchesUrl(url, matchObj)) return true;
@@ -132,7 +132,7 @@ async function generateFetchPatterns() {
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
     
-    for (const mod of profile.mods) {
+    for (const mod of profile.rules) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
       
       let wantsRequest = !!mod.scripts?.onBeforeRequest;
@@ -201,7 +201,7 @@ async function _doSyncDNRRules() {
     for (const [i, profile] of profiles.entries()) {
       if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
-      for (const mod of profile.mods) {
+      for (const mod of profile.rules) {
         if (!mod.enabled || mod.type === 'AdvancedJS') continue;
 
         const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
