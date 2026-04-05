@@ -11,7 +11,7 @@ import { handleRequestPaused } from './interceptor.js';
 import {
   getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
   getGlobalEnabled, setGlobalEnabled, getActiveProfileId, setActiveProfileId,
-  isTabAttached, removeAttachedTab, getAttachedTabs
+  isTabAttached, removeAttachedTab, getAttachedTabs, runMigrations
 } from '../storage/storage-manager.js';
 import { syncDNRRules, isAnyRuleActiveForUrl, hasAdvancedJSRuleForUrl } from './rule-engine.js';
 
@@ -132,6 +132,9 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log(`[ModNetwork] Installed: ${details.reason}`);
+  
+  // Run schema migrations for updates before processing anything else
+  await runMigrations();
 
   if (details.reason === 'install') {
     await setGlobalEnabled(true);

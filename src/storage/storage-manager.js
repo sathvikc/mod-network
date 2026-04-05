@@ -12,8 +12,11 @@
 const STORAGE_KEYS = {
   PROFILES: 'modnetwork_profiles',
   GLOBAL_ENABLED: 'modnetwork_global_enabled',
-  ACTIVE_PROFILE_ID: 'modnetwork_active_profile_id'
+  ACTIVE_PROFILE_ID: 'modnetwork_active_profile_id',
+  SCHEMA_VERSION: 'modnetwork_schema_version'
 };
+
+const TARGET_SCHEMA_VERSION = 2;
 
 const SESSION_KEYS = {
   ATTACHED_TABS: 'modnetwork_attached_tabs'
@@ -139,24 +142,6 @@ async function getProfiles() {
   let result = await chrome.storage.local.get(STORAGE_KEYS.PROFILES);
   let profiles = result[STORAGE_KEYS.PROFILES] || [];
   
-  // Migration: migrate `mods` to `rules` and drop `filters`
-  let needsSave = false;
-  profiles.forEach(p => {
-    if (p.mods !== undefined) {
-      if (!p.rules) p.rules = p.mods;
-      delete p.mods;
-      needsSave = true;
-    }
-    if (p.filters !== undefined) {
-      delete p.filters;
-      needsSave = true;
-    }
-  });
-
-  if (needsSave && profiles.length > 0) {
-    await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
-  }
-  
   _cache.profiles = profiles;
   return profiles;
 }
@@ -221,6 +206,46 @@ async function toggleProfile(id) {
       await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
       _cache.profiles = profiles;
     }
+  });
+}
+
+// ── Schema Versioning & Migrations ───────────────────────────────────
+
+/**
+ * Run schema migrations on extension startup.
+ */
+async function runMigrations() {
+  return withProfileWriteLock(async () => {
+    let result = await chrome.storage.local.get([STORAGE_KEYS.SCHEMA_VERSION, STORAGE_KEYS.PROFILES]);
+    let currentVersion = result[STORAGE_KEYS.SCHEMA_VERSION] || 1;
+    
+    if (currentVersion >= TARGET_SCHEMA_VERSION) return;
+    
+    let profiles = result[STORAGE_KEYS.PROFILES] || [];
+
+    if (currentVersion < 2) {
+      console.log('[StorageManager] Running migration v1 -> v2 (mods to rules)...');
+      let needsSave = false;
+      profiles.forEach(p => {
+        if (p.mods !== undefined) {
+          if (!p.rules) p.rules = p.mods;
+          delete p.mods;
+          needsSave = true;
+        }
+        if (p.filters !== undefined) {
+          delete p.filters;
+          needsSave = true;
+        }
+      });
+      if (needsSave && profiles.length > 0) {
+        await chrome.storage.local.set({ [STORAGE_KEYS.PROFILES]: profiles });
+      }
+      currentVersion = 2;
+    }
+
+    // Persist new version
+    await chrome.storage.local.set({ [STORAGE_KEYS.SCHEMA_VERSION]: currentVersion });
+    console.log(`[StorageManager] Schema migration complete. Current version: ${currentVersion}`);
   });
 }
 
@@ -326,6 +351,7 @@ export {
   deleteProfile,
   toggleProfile,
   createRule,
+  runMigrations,
   getActiveProfileId,
   setActiveProfileId,
   getGlobalEnabled,
