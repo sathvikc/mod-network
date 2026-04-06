@@ -78,8 +78,7 @@ Non-urgent improvements to address when time permits.
 - [ ] Add proper error boundaries in popup.
 - [ ] Performance: Only load AdvJS scripts when the interceptor actually needs to execute them (hot path currently loads everything).
 - [ ] Remove legacy `modnetwork_rules` → profiles migration code from `runMigrations()`. No user should have pre-v0.12.0 data after the v3 migration runs.
-- [ ] **Popup `add-mod-btn` creates rules inline without `createRule()`** — new rules have no type-specific defaults (no `headers` array for ModifyHeader, no `scripts` for AdvancedJS). Fix: use `createRule(type)` from storage-manager in the `add-mod-btn` handler in `popup.js`.
 - [ ] **Popup only supports one header per ModifyHeader rule** — `mod.headers[0]` hardcoded. Multi-header UI needed.
-- [ ] **`isAttached()` in `debugger-manager.js` returns `isTabEnabled()`** — misleading; means popup shows "Debugger Attached" even for DNR-only tabs. Rename or split: use `isTabEnabled` for the badge/status indicator, `isTabAttached` for actual CDP state. Fix popup label from "Debugger Attached" → "Intercepting".
+- [ ] **`isAttached()` in `debugger-manager.js` returns `isTabEnabled()`** — misleading; means `GET_TAB_STATUS` returns enabled state, not actual CDP attachment. Rename or split into `isTabEnabled` (badge) vs `isTabAttached` (CDP state).
 - [ ] **DNR response header modifications may be bypassed when AdvJS calls `Fetch.fulfillRequest`** — `fulfillRequest` replaces the entire response; if Chrome's DNR response-header rules run AFTER CDP Fetch, they are skipped. Needs empirical testing on Chrome ≥ 120. (See PROGRESS.md open questions.)
 - [ ] **Architecture Note**: The two-engine design (`ENABLED_TABS` for DNR + `ATTACHED_TABS` for Debugger) is now stable. Any future change to tab attachment logic must maintain this decoupling or DNR features will break when AdvJS is disabled.
