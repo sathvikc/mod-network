@@ -55,11 +55,11 @@ async function initTabStatus() {
 function updateTabUI(isAttached) {
   if (isAttached) {
     statusDot.className = 'status-dot active';
-    statusText.textContent = 'Debugger Attached';
+    statusText.textContent = 'Intercepting';
     toggleBtn.classList.add('active');
   } else {
     statusDot.className = 'status-dot inactive';
-    statusText.textContent = 'API Idle';
+    statusText.textContent = 'Inactive';
     toggleBtn.classList.remove('active');
   }
 }
@@ -415,16 +415,25 @@ function setupEventListeners() {
       const type = e.target.dataset.type;
       const activeProfile = profiles.find(p => p.id === activeProfileId);
       
-      // Default resource types is empty (matches all types).
-      const defaultResourceTypes = [];
-      activeProfile.rules.push({
+      const now = Date.now();
+      const rule = {
         id: crypto.randomUUID(),
         type: type,
         enabled: true,
-        name: `New ${type}`,
-        match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: defaultResourceTypes },
-        createdAt: Date.now()
-      });
+        name: type === 'AdvancedJS' ? 'Advanced JS Script' : `New ${type}`,
+        match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] },
+        createdAt: now,
+        updatedAt: now
+      };
+      // Add type-specific defaults so render and save handlers always have required fields
+      if (type === 'ModifyHeader') {
+        rule.headers = [];
+      } else if (type === 'AdvancedJS') {
+        rule.scripts = { onBeforeRequest: null, onResponse: null };
+      } else if (type === 'Redirect') {
+        rule.redirectUrl = '';
+      }
+      activeProfile.rules.push(rule);
       await saveActiveProfile();
       renderMain();
     });
