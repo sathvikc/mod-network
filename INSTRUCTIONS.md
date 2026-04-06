@@ -138,7 +138,7 @@ Scripts should modify and return the context (or `context.request` / `context.re
 3. Toggle interception on a tab, create rules with JS scripts
 4. Service worker logs: click "service worker" link on extensions page
 
-## Current State (v0.20.2)
+## Current State (v0.20.3)
 
 Check `PROGRESS.md` for completed milestones and open questions. Check `BACKLOG.md` for full backlog. Check `ARCHITECTURE.md` for Mermaid diagram.
 
@@ -158,13 +158,14 @@ Check `PROGRESS.md` for completed milestones and open questions. Check `BACKLOG.
 - `CHECK_ACTIVE_STATUS` (glow bar indicator) gated on ENABLED_TABS — only shows on user-enabled tabs
 - `updateActiveDebuggers` passes `tabId` per-tab — domain-locking preserved on rule updates
 - `DELETE_PROFILE` clears stale `activeProfileId` — prevents all rules silently stopping after deletion
+- Header guard in `interceptor.js` uses sorted-key comparison — immune to CDP vs user-script key-order differences (v0.20.3)
 
 **Known limitations:**
 - "Provisional headers" warning in DevTools for AdvJS-intercepted requests (unavoidable when Debugger is attached)
 - "Attach API" toggle button is a full kill switch (removes tab from ENABLED_TABS, stops both engines). Planned to be replaced with auto-attach based on rule matching.
 - Dashboard page (`src/dashboard/dashboard.js`) is non-functional — uses old flat-rules API. Parked for rebuild.
 - DNR response header modifications may be bypassed when AdvJS also modifies the response body (open question — needs testing, see PROGRESS.md)
-- JSON.stringify header guard in `interceptor.js` is key-order-sensitive — may produce false-positive header diffs
+- DNR response header modifications may be bypassed when AdvJS calls `Fetch.fulfillRequest` — needs empirical test (see PROGRESS.md Q2)
 
 **Next planned feature:**
 - Profile-Level Environment Variables (`{{VAR}}`) for dev/staging/prod switching without editing rules

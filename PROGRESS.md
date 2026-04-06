@@ -80,11 +80,10 @@ Disabling an AdvJS rule runs `sweepDebuggerAttachments` → `detachFromTab` (rem
 - Unverified: race condition in concurrent sweep + rule save. If `updateProfile` and `sweepDebuggerAttachments` run concurrently, the sweep sees a stale profile snapshot. The write mutex serializes storage writes but the sweep is NOT inside the mutex.
 - Action: Confirm `withProfileWriteLock` in `updateProfile` completes before `sweepDebuggerAttachments` reads profiles. Current order in `service-worker.js:374`: `await updateProfile(...)` then `await sweepDebuggerAttachments()` — sequential, not concurrent. ✅ The 2% is theoretical only.
 
-### Q4 — AdvJS doesn't clobber DNR request headers (Confidence: 95%)
-Header guard in `interceptor.js:116` prevents passing headers to `Fetch.continueRequest` unless the script changed them. The 5% gap:
-- Header comparison uses `JSON.stringify` — key ORDER matters. If CDP returns headers in a different key order than the user script returns them, the guard triggers a false-positive difference and passes headers unnecessarily.
-- Example: CDP gives `{ "Accept": "*", "Host": "x" }`, script returns `{ "Host": "x", "Accept": "*" }` — JSON diff shows change, headers passed to continueRequest, but actual content is identical.
-- Action: Replace `JSON.stringify` comparison with a structural deep-equal that is order-insensitive, OR sort keys before stringifying.
+### Q4 — AdvJS doesn't clobber DNR request headers (Confidence: 100%) ✅ FIXED
+Header guard in `interceptor.js` prevents passing headers to `Fetch.continueRequest` unless the script changed them.
+- **Fix applied (v0.20.3)**: Replaced `JSON.stringify` comparison with a sorted-key comparison (`sortedStringify`). Header keys are sorted alphabetically before comparing, eliminating false-positive diffs from key-order differences between CDP responses and user script return values.
+- Guard is now structurally correct — headers only forwarded to CDP when the user script genuinely changed header content.
 
 ### Q5 — Attach API removal / Auto-attach architecture
 The "Attach API" toggle button (`toggleBtn` in popup) currently calls `TOGGLE_TAB` which adds/removes tabs from ENABLED_TABS. Removing it requires:
