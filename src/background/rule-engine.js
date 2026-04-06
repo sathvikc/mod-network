@@ -2,7 +2,7 @@
  * RuleEngine — Matches incoming requests against user-defined Profiles and Mods.
  */
 
-import { getProfiles, getGlobalEnabled, getActiveProfileId, getAttachedTabs } from '../storage/storage-manager.js';
+import { getProfiles, getGlobalEnabled, getActiveProfileId, getEnabledTabs } from '../storage/storage-manager.js';
 
 /**
  * A profile's rules are active if it is explicitly enabled AND it is either
@@ -159,11 +159,57 @@ async function isAnyRuleActiveForUrl(url) {
 }
 
 /**
- * Generate CDP Fetch.RequestPattern array for the Debugger API based on Profile rules.
+ * Generate a valid Chrome Declarative URL Match Pattern or CDP URL wildcard pattern
+ * for a given user input, locked to a specific tab's host domain.
+ *
+ * Unlike parseSmartUrlPattern (which returns a Regex string), this function returns
+ * a valid Chrome URL pattern string for use in CDP Fetch.enable and declarativeNetRequest.
+ *
+ * Examples:
+ *   parseChromeMatchPattern('/api/users/', 'localhost:8765')  outputs  '*://localhost:8765/api/users/*'
+ *   parseChromeMatchPattern('*://*/*', 'localhost:8765')      outputs  '*://*/*' (wildcard is universal)
+ *   parseChromeMatchPattern('example.com/api/', null)         outputs  '*://example.com/api/*'
  */
-async function generateFetchPatterns() {
+function parseChromeMatchPattern(input, tabHost = null) {
+  let str = (input || '').trim();
+  if (!str || str === '*' || str === '*://*/*' || str === '<all_urls>') return '*://*/*';
+
+  // Path-only input — prefix with tab host or wildcard domain
+  if (str.startsWith('/')) {
+    const host = tabHost || '*';
+    if (!str.endsWith('*')) str += '*';
+    return `*://${host}${str}`;
+  }
+
+  // No protocol means it's a host+path input — prefix with scheme wildcard
+  if (!str.includes('://') && !str.startsWith('*')) {
+    if (!str.endsWith('*')) str += '*';
+    return `*://${str}`;
+  }
+
+  // Already a full pattern — just ensure trailing wildcard
+  if (!str.endsWith('*')) str += '*';
+  return str;
+}
+
+/**
+ * Generate CDP Fetch.RequestPattern array for the Debugger API based on Profile rules.
+ * tabId is passed so we can construct domain-locked patterns for path-only inputs.
+ */
+async function generateFetchPatterns(tabId = null) {
   const globalEnabled = await getGlobalEnabled();
   if (!globalEnabled) return [];
+
+  // Resolve tab host for domain-locking path-only patterns
+  let tabHost = null;
+  if (tabId) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.url && tab.url.startsWith('http')) {
+        tabHost = new URL(tab.url).host;
+      }
+    } catch(e) {}
+  }
 
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
   const patterns = [];
@@ -176,9 +222,11 @@ async function generateFetchPatterns() {
       
       let wantsRequest = !!mod.scripts?.onBeforeRequest;
       let wantsResponse = !!mod.scripts?.onResponse;
+      if (!wantsRequest && !wantsResponse) continue;
       
       const matchObj = mod.match || { urlPattern: '*://*/*', resourceTypes: [] };
-      const urlPattern = matchObj.urlPattern;
+      // Use surgical domain-locked pattern for CDP — prevents over-interception
+      const urlPattern = parseChromeMatchPattern(matchObj.urlPattern, tabHost);
       const resourceTypes = matchObj.resourceTypes || [];
       const typesToIterate = resourceTypes.length > 0 ? resourceTypes : [undefined];
 
@@ -193,7 +241,7 @@ async function generateFetchPatterns() {
     }
   }
 
-  console.log(`[RuleEngine] Generated ${patterns.length} Fetch patterns for Debugger SDK`);
+  console.log(`[RuleEngine] Generated ${patterns.length} Fetch patterns for Debugger SDK (tab host: ${tabHost})`);
   return patterns;
 }
 
@@ -221,8 +269,8 @@ async function syncDNRRules() {
 }
 
 async function _doSyncDNRRules() {
-  const [globalEnabled, profiles, activeProfileId, attachedTabs] = await Promise.all([
-    getGlobalEnabled(), getProfiles(), getActiveProfileId(), getAttachedTabs()
+  const [globalEnabled, profiles, activeProfileId, enabledTabs] = await Promise.all([
+    getGlobalEnabled(), getProfiles(), getActiveProfileId(), getEnabledTabs()
   ]);
 
   // Clean up any stray dynamic rules from older versions
@@ -242,13 +290,13 @@ async function _doSyncDNRRules() {
     return map[cdpType] || 'other';
   };
 
-  if (globalEnabled && attachedTabs.length > 0) {
-    const attachedTabDomains = [];
-    for (const tabId of attachedTabs) {
+  if (globalEnabled && enabledTabs.length > 0) {
+    const enabledTabDomains = [];
+    for (const tabId of enabledTabs) {
       try {
         const t = await chrome.tabs.get(tabId);
         if (t && t.url && t.url.startsWith('http')) {
-          attachedTabDomains.push(new URL(t.url).host);
+          enabledTabDomains.push(new URL(t.url).host);
         }
       } catch(e) {}
     }
@@ -262,8 +310,8 @@ async function _doSyncDNRRules() {
         const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
         const condition = {};
         
-        // Tab Session Filtering Context!
-        condition.tabIds = attachedTabs;
+        // Scope DNR rules to only the user-enabled tabs
+        condition.tabIds = enabledTabs;
         
         let pattern = matchObj.urlPattern || '*://*/*';
         
@@ -280,7 +328,7 @@ async function _doSyncDNRRules() {
             }
           }
         } else {
-          condition.regexFilter = parseSmartUrlPattern(pattern, attachedTabDomains);
+          condition.regexFilter = parseSmartUrlPattern(pattern, enabledTabDomains);
         }
         
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
@@ -314,7 +362,7 @@ async function _doSyncDNRRules() {
   }
 
   await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds, addRules });
-  console.log(`[ModNetwork] DNR Engine Synced (Session): Removed ${removeRuleIds.length}, Added ${addRules.length} rules. Attached Tabs: ${attachedTabs.join(', ')}`);
+  console.log(`[ModNetwork] DNR Engine Synced: Removed ${removeRuleIds.length}, Added ${addRules.length} rules. Enabled Tabs: [${enabledTabs.join(', ')}]`);
   if (addRules.length > 0) {
     console.log(`[ModNetwork] Active DNR Compilation: `, addRules);
   }

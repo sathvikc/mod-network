@@ -5,8 +5,11 @@
  * and tracking which tabs have active debugger sessions.
  */
 
-import { addAttachedTab, removeAttachedTab, isTabAttached, getAttachedTabs } from '../storage/storage-manager.js';
-import { generateFetchPatterns, syncDNRRules } from './rule-engine.js';
+import { 
+  addAttachedTab, removeAttachedTab, isTabAttached, getAttachedTabs,
+  addEnabledTab, removeEnabledTab, isTabEnabled, getEnabledTabs
+} from '../storage/storage-manager.js';
+import { generateFetchPatterns, hasAdvancedJSRuleForUrl, syncDNRRules } from './rule-engine.js';
 
 const CDP_VERSION = '1.3';
 
@@ -30,38 +33,20 @@ async function attachToTab(tabId, patterns = null) {
 
     // Enable Fetch domain to intercept requests
     // Only intercept traffic matching user rules
-    const fetchPatterns = patterns || await generateFetchPatterns();
-
-    // Workaround: if no patterns are provided, CDP intercepts ALL traffic by default.
-    // To literally intercept nothing, we must pass a fake pattern that matches nothing.
-    // However, Chrome expects valid patterns. If there are no rules, we can just detach,
-    // or pass a pattern that realistically hits nothing, e.g. a dummy scheme.
-    // Actually, passing `[]` might result in all traffic being intercepted (or none, depending on Chrome version).
-    // Let's pass `[]` if possible. Wait, the docs say "If not set, all requests will be affected."
-    // We should explicitly set it.
+    const fetchPatterns = patterns || await generateFetchPatterns(tabId);
+    
     await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', {
       patterns: fetchPatterns.length > 0 ? fetchPatterns : [{ urlPattern: 'http://255.255.255.255:0/*', requestStage: 'Request' }]
     });
-    console.log(`[ModNetwork] Fetch.enable sent for tab ${tabId}`);
 
-    // Track this tab as attached
+    console.log(`[ModNetwork] Successfully attached to tab ${tabId}`);
     await addAttachedTab(tabId);
-
-    // Update extension icon to indicate active state
-    await updateIcon(tabId, true);
-    
-    // Sync DNR Session rules to apply to this new tab
-    await syncDNRRules();
 
     return true;
   } catch (error) {
-    // "Another debugger is already attached" means a concurrent sweep got here first.
-    // Don't detach — that would kill their session. Just ensure our storage is consistent.
-    if (error.message?.includes('Another debugger is already attached')) {
+    if (error.message.includes('Already attached')) {
       console.log(`[ModNetwork] Tab ${tabId} was already attached by concurrent call — syncing state`);
       await addAttachedTab(tabId);
-      await updateIcon(tabId, true);
-      await syncDNRRules();
       return true;
     }
 
@@ -92,14 +77,11 @@ async function detachFromTab(tabId) {
 
   // Always clean up tracking state
   await removeAttachedTab(tabId);
-  await updateIcon(tabId, false);
-  await syncDNRRules();
   return true;
 }
 
 /**
- * Detach from all tabs.
- * @returns {Promise<void>}
+ * Detach from all tabs cleanly. Does NOT adjust ENABLED_TABS.
  */
 async function detachAll() {
   const tabs = await getAttachedTabs();
@@ -114,7 +96,7 @@ async function detachAll() {
  * @returns {Promise<boolean>}
  */
 async function isAttached(tabId) {
-  return isTabAttached(tabId);
+  return await isTabEnabled(tabId);
 }
 
 /**
@@ -123,11 +105,29 @@ async function isAttached(tabId) {
  * @returns {Promise<boolean>} New attachment state (true = attached).
  */
 async function toggleTab(tabId) {
-  if (await isTabAttached(tabId)) {
-    await detachFromTab(tabId);
+  if (await isTabEnabled(tabId)) {
+    console.log(`[ModNetwork] Toggling OFF tab ${tabId}`);
+    await removeEnabledTab(tabId);
+    if (await isTabAttached(tabId)) {
+      await detachFromTab(tabId);
+    }
+    await updateIcon(tabId, false);
+    await syncDNRRules();
     return false;
   } else {
-    return attachToTab(tabId);
+    console.log(`[ModNetwork] Toggling ON tab ${tabId}`);
+    await addEnabledTab(tabId);
+    await updateIcon(tabId, true);
+    await syncDNRRules();
+
+    // Auto-attach AdvancedJS component if necessary
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.url && await hasAdvancedJSRuleForUrl(tab.url)) {
+        await attachToTab(tabId);
+      }
+    } catch(e) {}
+    return true;
   }
 }
 
@@ -138,10 +138,9 @@ async function toggleTab(tabId) {
  * @param {string} reason — Detach reason
  */
 async function handleDetach(source, reason) {
-  console.log(`[ModNetwork] Debugger detached from tab ${source.tabId}, reason: ${reason}`);
-  await removeAttachedTab(source.tabId);
-  await updateIcon(source.tabId, false);
-  await syncDNRRules();
+  if (await isTabAttached(source.tabId)) {
+    await removeAttachedTab(source.tabId);
+  }
 }
 
 /**
@@ -162,15 +161,15 @@ async function sendCommand(tabId, method, params = {}) {
  */
 async function updateIcon(tabId, active) {
   try {
-    // Use badge to indicate active state
-    await chrome.action.setBadgeText({
-      text: active ? 'ON' : '',
-      tabId
-    });
-    await chrome.action.setBadgeBackgroundColor({
-      color: active ? '#00e676' : '#666666',
-      tabId
-    });
+    const enabledTabs = await getEnabledTabs();
+  
+    // Enable UI if it is physically in ENABLED_TABS array
+    if (enabledTabs.includes(tabId)) {
+      chrome.action.setBadgeText({ tabId, text: 'ON' });
+      chrome.action.setBadgeBackgroundColor({ tabId, color: '#f59e0b' }); // Amber/Orange
+    } else {
+      chrome.action.setBadgeText({ tabId, text: '' });
+    }
   } catch (error) {
     // Tab might not exist anymore
     console.warn('[ModNetwork] Icon update failed:', error.message);
@@ -178,26 +177,37 @@ async function updateIcon(tabId, active) {
 }
 
 /**
- * Re-sync state on service worker startup.
- * Checks if previously-attached tabs are still valid.
+ * Synchronize internal tracking state with actual extension UI logic.
  */
 async function syncState() {
-  const tabs = await getAttachedTabs();
-  for (const tabId of tabs) {
+  const enabledTabs = await getEnabledTabs();
+  const actualAttachedTabs = await getAttachedTabs();
+  
+  // Set icons for all enabled tabs
+  for (const tabId of enabledTabs) {
     try {
-      // Check if tab still exists
-      await chrome.tabs.get(tabId);
-      // Tab exists — check if debugger is still attached via getTargets
-      const targets = await chrome.debugger.getTargets();
-      const isStillAttached = targets.some(t => t.tabId === tabId && t.attached);
-      if (!isStillAttached) {
-        await removeAttachedTab(tabId);
-        await updateIcon(tabId, false);
+      const tab = await chrome.tabs.get(tabId);
+      if (tab) {
+        await updateIcon(tabId, true);
       }
-    } catch (_) {
-      // Tab doesn't exist anymore — clean up
-      await removeAttachedTab(tabId);
+    } catch {
+      await removeEnabledTab(tabId);
     }
+  }
+
+  // Find zombie debuggers (Chrome thinks attached, but we forgot)
+  try {
+    const targets = await chrome.debugger.getTargets();
+    for (const target of targets) {
+      if (target.attached && target.tabId) {
+        if (!actualAttachedTabs.includes(target.tabId)) {
+          console.warn(`[ModNetwork] Found untracked attached tab ${target.tabId}, detaching...`);
+          await detachFromTab(target.tabId);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[ModNetwork] Failed to sync debugger targets:', error);
   }
 }
 

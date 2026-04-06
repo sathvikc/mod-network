@@ -26,7 +26,8 @@ const STORAGE_KEYS = {
 const TARGET_SCHEMA_VERSION = 3;
 
 const SESSION_KEYS = {
-  ATTACHED_TABS: 'attached_tabs'
+  ATTACHED_TABS: 'attached_tabs',
+  ENABLED_TABS: 'enabled_tabs'
 };
 
 // ── In-Memory Cache ────────────────────────────────────────────────────
@@ -384,6 +385,41 @@ async function removeAttachedTab(tabId) {
   await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
 }
 
+// ── Tab Enable State (DNR) ─────────────────────────────────────────────
+
+async function isTabEnabled(tabId) {
+  try {
+    const result = await chrome.storage.session.get(SESSION_KEYS.ENABLED_TABS);
+    const tabs = result[SESSION_KEYS.ENABLED_TABS] || [];
+    return tabs.includes(tabId);
+  } catch (err) {
+    return false;
+  }
+}
+
+async function getEnabledTabs() {
+  try {
+    const result = await chrome.storage.session.get(SESSION_KEYS.ENABLED_TABS);
+    return result[SESSION_KEYS.ENABLED_TABS] || [];
+  } catch {
+    return [];
+  }
+}
+
+async function addEnabledTab(tabId) {
+  const tabs = await getEnabledTabs();
+  if (!tabs.includes(tabId)) {
+    tabs.push(tabId);
+    await chrome.storage.session.set({ [SESSION_KEYS.ENABLED_TABS]: tabs });
+  }
+}
+
+async function removeEnabledTab(tabId) {
+  let tabs = await getEnabledTabs();
+  tabs = tabs.filter(id => id !== tabId);
+  await chrome.storage.session.set({ [SESSION_KEYS.ENABLED_TABS]: tabs });
+}
+
 
 export {
   getProfiles,
@@ -400,5 +436,9 @@ export {
   isTabAttached,
   getAttachedTabs,
   addAttachedTab,
-  removeAttachedTab
+  removeAttachedTab,
+  isTabEnabled,
+  getEnabledTabs,
+  addEnabledTab,
+  removeEnabledTab
 };

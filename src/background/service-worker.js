@@ -14,7 +14,9 @@ import { handleRequestPaused } from './interceptor.js';
 import {
   getProfiles, saveProfile, updateProfile, deleteProfile, toggleProfile,
   getGlobalEnabled, setGlobalEnabled, getActiveProfileId, setActiveProfileId,
-  isTabAttached, removeAttachedTab, getAttachedTabs, runMigrations
+  isTabAttached, removeAttachedTab, getAttachedTabs,
+  isTabEnabled, getEnabledTabs, addEnabledTab, removeEnabledTab,
+  runMigrations
 } from '../storage/storage-manager.js';
 import { syncDNRRules, isAnyRuleActiveForUrl, hasAdvancedJSRuleForUrl } from './rule-engine.js';
 
@@ -59,6 +61,11 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (await isTabAttached(tabId)) {
     await removeAttachedTab(tabId);
   }
+  // Also remove from enabled tabs so DNR session rules are cleaned up
+  if (await isTabEnabled(tabId)) {
+    await removeEnabledTab(tabId);
+    await syncDNRRules();
+  }
 });
 
 /**
@@ -73,23 +80,30 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   // Never attach to internal browser pages
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    if (await isAttached(tabId)) await detachFromTab(tabId);
+    if (await isTabAttached(tabId)) await detachFromTab(tabId);
     return;
   }
 
-  const shouldAttach = await hasAdvancedJSRuleForUrl(url);
-  const alreadyAttached = await isAttached(tabId);
+  // If tab is not user-enabled, do nothing to the debugger
+  if (!(await isTabEnabled(tabId))) return;
 
-  if (shouldAttach && !alreadyAttached && tab.active) {
-    console.log(`[ModNetwork] Auto-attaching debugger to tab ${tabId} for: ${url}`);
+  // Tab is enabled — manage the AdvJS debugger hook
+  const needsAdvJS = await hasAdvancedJSRuleForUrl(url);
+  const alreadyAttached = await isTabAttached(tabId);
+
+  if (needsAdvJS && !alreadyAttached) {
+    console.log(`[ModNetwork] Tab ${tabId} navigated to AdvJS-matching URL, attaching debugger`);
     await attachToTab(tabId);
-  } else if (!shouldAttach && alreadyAttached) {
-    console.log(`[ModNetwork] Auto-detaching debugger from tab ${tabId} — no AdvancedJS rules match: ${url}`);
+  } else if (!needsAdvJS && alreadyAttached) {
+    console.log(`[ModNetwork] Tab ${tabId} navigated away from AdvJS URL, detaching debugger`);
     await detachFromTab(tabId);
   } else if (alreadyAttached) {
-    // Still matches — Chrome clears per-tab badge on navigation, re-apply it
+    // Re-apply icon since Chrome clears it on navigation
     await updateIcon(tabId, true);
   }
+
+  // Re-sync DNR in case the new page URL changes domain-locked patterns
+  await syncDNRRules();
 });
 
 /**
@@ -98,20 +112,18 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
  * - Detach from all other tabs (only the active tab ever holds a debugger session).
  */
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  // Detach all tabs that aren't the newly active one
-  const attachedTabs = await getAttachedTabs();
-  for (const attachedTabId of attachedTabs) {
-    if (attachedTabId !== tabId) {
-      await detachFromTab(attachedTabId);
-    }
-  }
+  // Update icon state for the newly active tab
+  const enabled = await isTabEnabled(tabId);
+  await updateIcon(tabId, enabled);
 
-  // Attach to newly active tab if it matches and is fully loaded
-  const tab = await chrome.tabs.get(tabId);
-  if (tab.status !== 'complete' || !tab.url) return; // onUpdated will handle it when load finishes
+  // Only manage debugger if tab is user-enabled
+  if (!enabled) return;
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab || tab.status !== 'complete' || !tab.url) return;
   if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) return;
 
-  if (await hasAdvancedJSRuleForUrl(tab.url) && !(await isAttached(tabId))) {
+  if (await hasAdvancedJSRuleForUrl(tab.url) && !(await isTabAttached(tabId))) {
     console.log(`[ModNetwork] Auto-attaching debugger on tab switch to tab ${tabId}: ${tab.url}`);
     await attachToTab(tabId);
   }
@@ -249,34 +261,58 @@ async function sweepDebuggerAttachments() {
 }
 
 async function _doSweepDebuggerAttachments() {
-  // Detach any attached tab that no longer has a matching rule
-  const attachedTabs = await getAttachedTabs();
-  for (const tabId of attachedTabs) {
+  const enabledTabs = await getEnabledTabs();
+
+  // For each user-enabled tab, decide whether AdvJS debugger should be attached
+  for (const tabId of enabledTabs) {
     try {
       const tab = await chrome.tabs.get(tabId);
-      if (!tab.url || !(await hasAdvancedJSRuleForUrl(tab.url))) {
-        console.log(`[ModNetwork] Sweep: detaching tab ${tabId} — rules no longer match`);
+      if (!tab.url || !tab.url.startsWith('http')) {
+        // Non-HTTP tab — detach debugger if attached, keep in ENABLED_TABS
+        if (await isTabAttached(tabId)) await detachFromTab(tabId);
+        continue;
+      }
+
+      const needsAdvJS = await hasAdvancedJSRuleForUrl(tab.url);
+      const isAttachedNow = await isTabAttached(tabId);
+
+      if (needsAdvJS && !isAttachedNow) {
+        console.log(`[ModNetwork] Sweep: attaching AdvJS hook to enabled tab ${tabId}`);
+        await attachToTab(tabId);
+      } else if (!needsAdvJS && isAttachedNow) {
+        console.log(`[ModNetwork] Sweep: detaching AdvJS hook from tab ${tabId} — no AdvJS rules match`);
         await detachFromTab(tabId);
       }
     } catch {
-      // Tab no longer exists — clean up stale session entry
+      // Tab no longer exists — clean up both state arrays
+      await removeEnabledTab(tabId);
       await removeAttachedTab(tabId);
     }
   }
 
-  // Attach to the active tab if a rule was just enabled and now matches
-  await autoAttachMatchingTabs();
+  // Detach any attached tabs that are NOT in enabledTabs (safety net)
+  const attachedTabs = await getAttachedTabs();
+  for (const tabId of attachedTabs) {
+    if (!enabledTabs.includes(tabId)) {
+      console.log(`[ModNetwork] Sweep: detaching orphaned attached tab ${tabId}`);
+      await detachFromTab(tabId);
+    }
+  }
 }
 
 async function autoAttachMatchingTabs() {
-  // Only consider the active tab in each window — background tabs are never attached
-  const activeTabs = await chrome.tabs.query({ active: true, url: ['http://*/*', 'https://*/*'] });
-  for (const tab of activeTabs) {
-    if (!tab.id || !tab.url || tab.status !== 'complete') continue;
-    if (await hasAdvancedJSRuleForUrl(tab.url) && !(await isAttached(tab.id))) {
-      console.log(`[ModNetwork] Auto-attaching to active tab ${tab.id}: ${tab.url}`);
-      await attachToTab(tab.id);
-    }
+  // Only attach to user-enabled active tabs
+  const enabledTabs = await getEnabledTabs();
+  for (const tabId of enabledTabs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab || !tab.url || tab.status !== 'complete') continue;
+      if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) continue;
+      if (await hasAdvancedJSRuleForUrl(tab.url) && !(await isTabAttached(tabId))) {
+        console.log(`[ModNetwork] Auto-attaching to enabled tab ${tab.id}: ${tab.url}`);
+        await attachToTab(tab.id);
+      }
+    } catch(e) {}
   }
 }
 
