@@ -16,10 +16,12 @@ ModNetwork uses the **Chrome Debugger API** for maximum power — modify URLs, r
 
 - 🔧 **Full Request Control** — Modify URL, method, headers, body before sending
 - 📦 **Full Response Control** — Modify status, headers, body after receiving
-- 📝 **User-Scriptable** — Write JavaScript transform functions for each rule
-- 🎯 **URL Pattern Matching** — Target specific domains, paths, or resource types
+- 🚦 **Native Redirect & Block** — Fast DNS-level URL redirects and request blocking via Chrome DNR
+- 📝 **User-Scriptable** — Write JavaScript transform functions for advanced interception
+- 🎯 **Smart URL Matching** — Write partial URLs, paths, or domains — the engine expands them intelligently
+- 🔒 **Tab-Isolated** — Rules only affect tabs you explicitly enable. Never leaks to other browser tabs.
 - 💾 **Local Only** — Zero external dependencies, no servers, no data leaves your machine
-- 🎨 **Premium UI** — Dark-themed, modern interface with code editor
+- 🎨 **Premium UI** — Dark-themed, ultra-dense workspace interface
 
 ## Setup
 
@@ -59,11 +61,20 @@ src/
 
 ## How It Works
 
-1. User creates a **rule** with a URL pattern and JavaScript transform functions
-2. When interception is enabled, the extension **attaches the Chrome Debugger** to the tab
-3. The **CDP Fetch domain** intercepts matching requests at the request or response stage
-4. User's JavaScript functions execute in a **sandboxed environment** and return modified data
-5. The modified request/response is sent to the browser
+ModNetwork has **two independent engines** running side-by-side:
+
+### Engine 1: Native DNR (fast, always-on when tab is enabled)
+1. You click the toggle button → the tab is marked as **enabled**
+2. ModNetwork compiles your Redirect, Block, and ModifyHeader rules into Chrome's native `declarativeNetRequest` engine, scoped only to your enabled tab
+3. Chrome handles the network modifications natively — fully visible in DevTools, no debugger required
+
+### Engine 2: AdvancedJS (powerful, attaches only when needed)
+1. If you have an **AdvancedJS rule** matching the current tab's URL, the Chrome Debugger attaches
+2. The CDP Fetch domain intercepts matching requests at the exact stages you specify
+3. Your JavaScript functions execute in a **sandboxed iframe** and return modified data
+4. The modified request/response continues through Chrome
+
+> Turning off AdvancedJS rules automatically detaches the debugger — DNR rules keep running.
 
 ## Writing Transform Scripts
 

@@ -22,25 +22,32 @@
 
 ---
 
-## Milestone 4: Smart Automation (Current) 🚧
+## Milestone 4: Unified Interception Engine ✅
 - [x] **Intelligent Auto-Attach** — Automatically attach debugger to tabs matching AdvancedJS rules (on navigation + startup scan)
 - [x] **Context-Aware Detach** — Silently detach debugger when tab navigates to a URL with no matching AdvancedJS rules
 - [x] **Privacy-First Sweep** — Global/Profile/Mod toggles sweep all attached tabs and detach if rules no longer match
+- [x] **Smart URL Compiler** (`parseSmartUrlPattern`) — Converts partial user inputs (`/api/`, `localhost:8765`) into strict regex patterns; shared by both DNR and AdvancedJS engines for 1:1 match parity
+- [x] **Domain-Locked Matching** — When tab domain is known, path-only inputs auto-bind to that host (e.g. `/api/` → `localhost:8765/api/*`)
+- [x] **Surgical CDP Patterns** (`parseChromeMatchPattern`) — `Fetch.enable` receives domain-locked Chrome URL match strings; prevents over-interception of CSS/fonts and reduces DevTools "Provisional headers" noise
+- [x] **Two-Engine Decoupling: `ENABLED_TABS` vs `ATTACHED_TABS`** — DNR engine binds to user-enabled tabs (`ENABLED_TABS`); Chrome Debugger only attaches when AdvJS rules are active (`ATTACHED_TABS`). Disabling AdvJS no longer breaks Redirect/Block/ModifyHeader.
+- [x] **Execution Priority Pipeline** — Block (4) > Redirect (3) > ModifyHeader (2) > AdvancedJS; AdvancedJS only passes headers to CDP if the script actually changed them
+- [x] **Header Guard in Interceptor** — JSON structural diff prevents AdvancedJS from overwriting DNR-injected headers
+- [x] **Tab Cleanup** — `tabs.onRemoved` cleans both `ENABLED_TABS` and `ATTACHED_TABS`; `tabs.onActivated` restores badge state from `ENABLED_TABS`
 
----
+## UI / Incremental Improvements
 
-## UI Backlog
-
-- [x] **Active Workspace Indicator** — Selected profile is visually highlighted; clicking a profile activates it (enables it + disables non-pinned others). Pin button (hover icon) keeps a workspace always active regardless of selection. `activeProfileId` persisted to `chrome.storage.local`.
-- [ ] **Expand Active Rule Sections** — When a rule section (ModifyHeader / Redirect / AdvancedJS) has at least one enabled mod, expand it by default. If the user collapses it, show a subtle indicator (dot/count) on the section header to signal it contains active rules.
+- [x] **Active Workspace Indicator** — Selected profile is visually highlighted; clicking a profile activates it. Pin button keeps a workspace always active. `activeProfileId` persisted to `chrome.storage.local`.
+- [ ] **Expand Active Rule Sections** — When a rule section has at least one enabled mod, expand it by default. Show a dot/count on the header when collapsed.
 
 ---
 
 ## Future Roadmap
 
-### Milestone 5: Developer Experience
-- [ ] **Script Console** — View log outputs from the sandbox in the popup
-- [ ] **Rule Templates** — Pre-built snippets for common header/body hacks
+### Milestone 5: Configuration & Developer Experience (Next)
+- [ ] **Profile-Level Environment Variables** — Postman-style `{{VAR}}` interpolation in rule URLs, header values, and redirect URLs. Enables dev/staging/prod switching without editing rules.
+- [ ] **cURL / HAR Import** — Auto-generate rules from DevTools cURL or HAR format
+- [ ] **Script Console** — View sandbox log outputs in the popup
+- [ ] **Rule Templates** — Pre-built snippets for common header/body transformations
 - [ ] **JSON Path Editor** — Simplified UI for standard JSON response patches
 
 ### Milestone 6: Enterprise Features

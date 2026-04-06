@@ -44,17 +44,35 @@ Content Script
 
 ## How The Interception Pipeline Works
 
-1. User clicks toggle button → Service Worker attaches Chrome Debugger to tab
-2. CDP `Fetch.enable` is sent with patterns for Request and Response stages
-3. When a page makes a network request:
-   - `Fetch.requestPaused` event fires in the service worker
-   - Rule Engine finds matching rules by URL pattern + resource type
-   - If at **Request stage**: user's `onBeforeRequest` script can modify URL, method, headers, body
-   - If at **Response stage**: `Fetch.getResponseBody` gets the body, user's `onResponse` script can modify body, headers, status
+There are **two independent engines** that operate side-by-side:
+
+### Engine 1: Native DNR (Redirect, Block, ModifyHeader)
+1. User clicks toggle button in the popup → tab is added to `ENABLED_TABS` session storage
+2. `syncDNRRules()` fires and compiles all active DNR rules into Chrome Session Rules scoped to `ENABLED_TABS`
+3. Chrome natively applies blocks, redirects, and header modifications before the request reaches the network
+4. These rules work **without the Chrome Debugger being attached** and are always visible in DevTools
+
+### Engine 2: AdvancedJS (chrome.debugger / CDP)
+1. If the tab is in `ENABLED_TABS` AND an AdvancedJS rule matches the tab's URL, the Chrome Debugger attaches
+2. CDP `Fetch.enable` is sent with **surgical match patterns** locked to the current tab's domain (e.g. `*://localhost:8765/api/*`)
+3. When a page makes a matching network request:
+   - `Fetch.requestPaused` event fires
+   - Rule Engine finds matching AdvancedJS rules by URL + resource type
+   - If at **Request stage**: `onBeforeRequest` script can modify URL, method, headers, body
+   - If at **Response stage**: `onResponse` script can modify body, headers, status
 4. User scripts execute in a **sandboxed iframe** (CSP allows eval there)
    - Service Worker → runtime message → Offscreen Document → postMessage → Sandbox
    - Results flow back the same path
 5. Modified data is sent via `Fetch.fulfillRequest` or `Fetch.continueRequest`
+6. Headers are only passed to `Fetch.continueRequest` if the script actually changed them (prevents overwriting DNR header modifications)
+
+### Execution Priority Order
+```
+Priority 4  — BlockRequest      (DNR, native)
+Priority 3  — Redirect          (DNR, native)
+Priority 2  — ModifyHeader      (DNR, native, visible in DevTools)
+Exec Stage  — AdvancedJS        (chrome.debugger Fetch API)
+```
 
 ## User Script Context
 
@@ -103,12 +121,15 @@ Scripts should modify and return the context (or `context.request` / `context.re
 
 ## Key Technical Decisions
 
-1. **Chrome Debugger API** over webRequest/declarativeNetRequest — only way to modify response bodies
-2. **Sandbox for eval** — MV3 CSP blocks eval in service workers and extension pages, but sandboxed pages allow it
-3. **Offscreen document as bridge** — service workers can't create iframes, so we use chrome.offscreen API
-4. **ES modules** in service worker — cleaner code organization (`"type": "module"` in manifest)
-5. **No external dependencies** — everything is vanilla JS, CSS, HTML
-6. **chrome.storage.session** for ephemeral state — tracks which tabs have debugger attached (survives SW restarts)
+1. **Two-engine architecture**: DNR (native) for headers/redirect/block; chrome.debugger (CDP) for body modification. They are fully decoupled.
+2. **ENABLED_TABS vs ATTACHED_TABS**: `ENABLED_TABS` tracks user intent (toggle ON). `ATTACHED_TABS` tracks which tabs have the heavy debugger hook active (only when AdvJS rules exist). This means turning off AdvJS rules never breaks DNR.
+3. **Smart URL Pattern Compiler** (`parseSmartUrlPattern`): Converts user-friendly partial inputs into strict regex. Used by both DNR and AdvancedJS engines for 1:1 match parity.
+4. **Surgical CDP patterns** (`parseChromeMatchPattern`): For `Fetch.enable`, uses valid Chrome match strings (not regex), domain-locked to the active tab host. Prevents over-interception of CSS/fonts which causes "Provisional headers" in DevTools.
+5. **Sandbox for eval** — MV3 CSP blocks eval in service workers and extension pages, but sandboxed pages allow it
+6. **Offscreen document as bridge** — service workers can't create iframes, so we use chrome.offscreen API
+7. **ES modules** in service worker — cleaner code organization (`"type": "module"` in manifest)
+8. **No external dependencies** — everything is vanilla JS, CSS, HTML
+9. **chrome.storage.session** for ephemeral state — two arrays: `ENABLED_TABS` and `ATTACHED_TABS` (both survive SW restarts)
 
 ## Development Setup
 
@@ -117,17 +138,25 @@ Scripts should modify and return the context (or `context.request` / `context.re
 3. Toggle interception on a tab, create rules with JS scripts
 4. Service worker logs: click "service worker" link on extensions page
 
-## Current State
+## Current State (v0.20.1)
 
 Check `PROGRESS.md` for completed milestones and `BACKLOG.md` for the full backlog details.
 
 **What's working:**
-- Extension loads, popup shows rules, toggle attaches Chrome Debugger
+- Extension loads, popup shows rules, toggle adds tab to `ENABLED_TABS`
+- DNR engine (ModifyHeader, Redirect, BlockRequest) runs natively and is always active when tab is enabled
+- Chrome Debugger (AdvancedJS) attaches only when enabled AND AdvJS rules match the current URL
 - CDP Fetch interception pipeline: Request and Response stages
 - User scripts execute in sandboxed iframe with fetch proxy
 - Rule CRUD (create, read, update, delete, toggle)
-- Badge shows ON state, persists through page reloads
+- Badge shows `ON` state driven by `ENABLED_TABS` (not debugger attachment)
+- Smart URL matching: partial URLs, path-only inputs, domain inputs all compile correctly
+- Tab navigation cleans up `ENABLED_TABS` and `ATTACHED_TABS` gracefully
 - Test server (`test/server.js`) demonstrates header replacement use case
+
+**Known limitations / next steps:**
+- "Provisional headers" warning in DevTools still appears for AdvJS-intercepted requests (unavoidable Chrome behavior when Debugger is attached)
+- Profile-Level Environment Variables (`{{VAR}}`) not yet implemented — next planned feature
 
 ## Backlog
 

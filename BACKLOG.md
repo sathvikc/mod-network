@@ -13,17 +13,23 @@ Non-urgent improvements to address when time permits.
 
 ---
 
+## Features (Next Up)
+
+- [ ] **Profile-Level Variables** — Postman-style environment variables (`{{API_BASE}}`, `{{AUTH_TOKEN}}`) on each profile. Rules and scripts interpolate these in URL patterns, header values, and redirect URLs. Enables switching between dev/staging/prod without editing rules. **This is the safe way to handle default domains for path-only patterns.**
+- [ ] **cURL / HAR Import** — Auto-generate rule configurations by pasting raw requests from Chrome DevTools (cURL or HAR format).
+
+---
+
 ## Features (Future)
 
-- [ ] **Dashboard page**: Open full-tab page for complex config (code editor, logs, settings) — keep popup compact for quick controls (like Automa pattern).
-- [ ] **Profiles**: Group rules into profiles and assign specific profiles to specific tabs vs globally.
-- [ ] **Advanced Environmental Filters UI (Roadmap)**: Support filters like Tab ID, Window ID, Tab Group, Auto-off Timer, and Method filters. Architecturally, consider:
+- [ ] **Dashboard page** — Open full-tab page for complex config (code editor, logs, settings); keep popup compact for quick controls (Automa pattern).
+- [ ] **Profiles** — Group rules into profiles and assign specific profiles to tabs vs globally.
+- [ ] **Advanced Environmental Filters UI (Roadmap)** — Support filters like Tab ID, Window ID, Tab Group, Auto-off Timer, and Method filters. Architecturally, consider:
   - *Pattern A (Profile-Level)*: Workspace has a global `contextFilters: {}` acting as a gatekeeper.
   - *Pattern B (Rule-Level)*: Highly granular context matches for individual dense-row actions.
   - *Pattern C (Filter-as-a-Rule-Type)*: Add `{ type: 'TabFilter' }` into the `rules` array itself, acting as a logical "middleware" that drops execution for subsequent rules if conditions aren't met.
     - *Why this is powerful*: It keeps the schema incredibly simple (just one `rules` array). It allows users to control the order (e.g., run a JS modifier first, THEN check a timer, THEN modify headers). It fits beautifully into a drag-and-drop dashboard pipeline.
     - *Example Pipeline*: `[ { type: 'AdvancedJS' }, { type: 'TimerFilter', expiresAt: 1234 }, { type: 'ModifyHeader' } ]`
-- [ ] **Profile-Level Variables**: Postman-style environment variables (`{{API_BASE}}`, `{{AUTH_TOKEN}}`) on each profile. Rules and scripts interpolate these in URL patterns, header values, and redirect URLs. Enables switching between dev/staging/prod without editing rules.
 - [ ] **cURL / HAR Import**: Auto-generate rule configurations by pasting raw requests from Chrome DevTools (cURL or HAR format).
 - [ ] **Advanced URL Matchers**: Support Wildcard (Contains), Exact Equals, and full Regex matchers for granular rule targeting.
 - [ ] **Rule Tags & Groups**: Add `tags` and optional `group` fields on rules for UI filtering, bulk enable/disable by tag, and visual organization. Tags are more flexible than strict folders since a rule can belong to multiple categories.
@@ -67,7 +73,7 @@ Non-urgent improvements to address when time permits.
 
 - [ ] Remove verbose debug logging once stable (the `⚡📦🔧🎉` logs).
 - [ ] Add proper error boundaries in popup.
-- [ ] Performance: Only intercept resource types that have matching rules.
+- [ ] Performance: Only load AdvJS scripts when the interceptor actually needs to execute them (hot path currently loads everything).
 - [ ] Remove legacy `modnetwork_rules` → profiles migration code from `getProfiles()`. Runs on every hot-path read but no user should have legacy data after v0.12.0.
-- [ ] Move demo workspace seeding out of `getProfiles()` into `chrome.runtime.onInstalled`. Side-effects hidden inside a getter are surprising for future callers.
-- [ ] Fix `createMod` dual semantics — it currently mixes "create with defaults" and "import existing data" in the same function, leading to subtle override bugs (see commit `050a621`).
+- [ ] Fix `createMod` dual semantics — it currently mixes "create with defaults" and "import existing data" in the same function, leading to subtle override bugs.
+- [ ] **Architecture Note**: The two-engine design (`ENABLED_TABS` for DNR + `ATTACHED_TABS` for Debugger) is now stable. Any future change to tab attachment logic must maintain this decoupling or DNR features will break when AdvJS is disabled.
