@@ -138,9 +138,9 @@ Scripts should modify and return the context (or `context.request` / `context.re
 3. Toggle interception on a tab, create rules with JS scripts
 4. Service worker logs: click "service worker" link on extensions page
 
-## Current State (v0.20.1)
+## Current State (v0.20.2)
 
-Check `PROGRESS.md` for completed milestones and `BACKLOG.md` for the full backlog details.
+Check `PROGRESS.md` for completed milestones and open questions. Check `BACKLOG.md` for full backlog. Check `ARCHITECTURE.md` for Mermaid diagram.
 
 **What's working:**
 - Extension loads, popup shows rules, toggle adds tab to `ENABLED_TABS`
@@ -152,11 +152,23 @@ Check `PROGRESS.md` for completed milestones and `BACKLOG.md` for the full backl
 - Badge shows `ON` state driven by `ENABLED_TABS` (not debugger attachment)
 - Smart URL matching: partial URLs, path-only inputs, domain inputs all compile correctly
 - Tab navigation cleans up `ENABLED_TABS` and `ATTACHED_TABS` gracefully
-- Test server (`test/server.js`) demonstrates header replacement use case
+- In-memory cache for profiles/globalEnabled/activeProfileId (avoids hot-path storage reads)
+- Write mutex serializes all profile mutations
+- Schema v3 with migration runner on startup
+- `CHECK_ACTIVE_STATUS` (glow bar indicator) gated on ENABLED_TABS — only shows on user-enabled tabs
+- `updateActiveDebuggers` passes `tabId` per-tab — domain-locking preserved on rule updates
+- `DELETE_PROFILE` clears stale `activeProfileId` — prevents all rules silently stopping after deletion
 
-**Known limitations / next steps:**
-- "Provisional headers" warning in DevTools still appears for AdvJS-intercepted requests (unavoidable Chrome behavior when Debugger is attached)
-- Profile-Level Environment Variables (`{{VAR}}`) not yet implemented — next planned feature
+**Known limitations:**
+- "Provisional headers" warning in DevTools for AdvJS-intercepted requests (unavoidable when Debugger is attached)
+- "Attach API" toggle button is a full kill switch (removes tab from ENABLED_TABS, stops both engines). Planned to be replaced with auto-attach based on rule matching.
+- Dashboard page (`src/dashboard/dashboard.js`) is non-functional — uses old flat-rules API. Parked for rebuild.
+- DNR response header modifications may be bypassed when AdvJS also modifies the response body (open question — needs testing, see PROGRESS.md)
+- JSON.stringify header guard in `interceptor.js` is key-order-sensitive — may produce false-positive header diffs
+
+**Next planned feature:**
+- Profile-Level Environment Variables (`{{VAR}}`) for dev/staging/prod switching without editing rules
+- Auto-attach architecture (remove "Attach API" button, auto-populate ENABLED_TABS from rule matches)
 
 ## Backlog
 

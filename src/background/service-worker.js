@@ -378,7 +378,13 @@ async function handleMessage(message, sender) {
     }
 
     case 'DELETE_PROFILE': {
+      // Clear stale activeProfileId before deleting so isProfileActive doesn't
+      // return false for ALL profiles on the next rule compile.
+      const currentActiveId = await getActiveProfileId();
       await deleteProfile(message.profileId);
+      if (currentActiveId === message.profileId) {
+        await setActiveProfileId(null);
+      }
       await sweepDebuggerAttachments();
       return { success: true };
     }
@@ -412,6 +418,13 @@ async function handleMessage(message, sender) {
 
     // ── Content Script API ──
     case 'CHECK_ACTIVE_STATUS': {
+      // Only show the indicator if the tab has been user-enabled (in ENABLED_TABS).
+      // Without this check, a *://*/* rule would light up the indicator on every
+      // page even on tabs the user never activated.
+      const tabId = sender.tab?.id;
+      if (tabId !== undefined && !(await isTabEnabled(tabId))) {
+        return { active: false };
+      }
       const active = await isAnyRuleActiveForUrl(message.url);
       return { active };
     }

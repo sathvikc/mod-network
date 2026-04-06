@@ -41,6 +41,62 @@
 
 ---
 
+## Storage / Architecture (Already Implemented — moved from Backlog)
+
+- [x] **In-Memory Cache** — `_cache = { profiles, globalEnabled, activeProfileId }` in `storage-manager.js`. Invalidated via `storage.onChanged`. Eliminates repeated storage reads on the hot interception path.
+- [x] **Write Mutex** — `withProfileWriteLock` in `storage-manager.js`. Serializes all profile read-modify-write operations to prevent TOCTOU races.
+- [x] **Schema Version & Migration Runner** — `runMigrations()` in `storage-manager.js`. Runs v1→v2 (mods→rules rename) and v2→v3 (key prefix removal + silent backup) on every startup.
+- [x] **Schema v3** — All storage keys migrated from `modnetwork_*` prefixed keys to unprefixed keys.
+
+---
+
+## Bug Fixes (2026-04-06)
+
+- [x] **Bug 1 — `CHECK_ACTIVE_STATUS` missing ENABLED_TABS gate** (`service-worker.js:419`) — Added `isTabEnabled(sender.tab?.id)` check. Without this, a `*://*/*` rule would show the glow-bar indicator on every page regardless of whether the user had enabled that tab.
+- [x] **Bug 4 — `updateActiveDebuggers` lost domain-locking** (`debugger-manager.js:218`) — Now calls `generateFetchPatterns(tabId)` per-tab inside the loop instead of once globally with no tabId. Path-only patterns like `/api/*` now correctly resolve to the attached tab's host domain.
+- [x] **Bug 5 — Stale `activeProfileId` after profile deletion** (`service-worker.js:380`) — `DELETE_PROFILE` now resets `activeProfileId` to null if the deleted profile was the active one. Prevents `isProfileActive` returning false for ALL profiles after deletion.
+
+---
+
+## Open Questions / Needs Testing
+
+### Q1 — Req/Res ModifyHeader without AdvJS (Confidence: 97%)
+DNR-only header modification is fully independent of the debugger. Confirmed via code trace (`_doSyncDNRRules` compiles rules to Chrome session rules with `condition.tabIds`). The 3% gap:
+- Unverified: minimum Chrome version compatibility for `updateSessionRules` with `tabIds` constraint
+- Unverified: whether Chrome silently drops a session rule if the `tabIds` array contains a closed/invalid tab ID vs. erroring
+- Action: test on Chrome 108 (lowest MV3 with DNR session rules) and verify via `chrome.declarativeNetRequest.getSessionRules()` after compile
+
+### Q2 — DNR response headers when AdvJS Fetch.fulfillRequest is called (Confidence: 60%)
+**This is the highest-risk open question.** When AdvJS intercepts a response and calls `Fetch.fulfillRequest`, it passes explicit `responseHeaders` built from `params.responseHeaders` (the CDP event payload). The question is whether Chrome's DNR `modifyHeaders` (response) rules are applied before or after CDP Fetch pauses the response.
+
+- If DNR response mods run BEFORE `Fetch.requestPaused` fires → they appear in `params.responseHeaders` → `Fetch.fulfillRequest` includes them → safe ✅
+- If DNR response mods run AFTER CDP Fetch is done (on `Fetch.fulfillRequest`) → they are skipped entirely → DNR response headers silently lost ❌
+
+There is no header guard equivalent on the response path (the request-stage guard exists at `interceptor.js:116`). If both DNR response headers and AdvJS body modification are configured, the result is unpredictable without empirical testing.
+- **Action**: Create a test with a ModifyHeader (Response stage) rule AND an AdvancedJS (onResponse) rule on the same URL. Verify via DevTools Network tab that the DNR-added response header appears in the fulfilled response.
+
+### Q3 — Block/Redirect/Headers when AdvJS rule disabled (Confidence: 98%)
+Disabling an AdvJS rule runs `sweepDebuggerAttachments` → `detachFromTab` (removes from ATTACHED_TABS only) → tab stays in ENABLED_TABS → DNR continues. The 2% gap:
+- Unverified: race condition in concurrent sweep + rule save. If `updateProfile` and `sweepDebuggerAttachments` run concurrently, the sweep sees a stale profile snapshot. The write mutex serializes storage writes but the sweep is NOT inside the mutex.
+- Action: Confirm `withProfileWriteLock` in `updateProfile` completes before `sweepDebuggerAttachments` reads profiles. Current order in `service-worker.js:374`: `await updateProfile(...)` then `await sweepDebuggerAttachments()` — sequential, not concurrent. ✅ The 2% is theoretical only.
+
+### Q4 — AdvJS doesn't clobber DNR request headers (Confidence: 95%)
+Header guard in `interceptor.js:116` prevents passing headers to `Fetch.continueRequest` unless the script changed them. The 5% gap:
+- Header comparison uses `JSON.stringify` — key ORDER matters. If CDP returns headers in a different key order than the user script returns them, the guard triggers a false-positive difference and passes headers unnecessarily.
+- Example: CDP gives `{ "Accept": "*", "Host": "x" }`, script returns `{ "Host": "x", "Accept": "*" }` — JSON diff shows change, headers passed to continueRequest, but actual content is identical.
+- Action: Replace `JSON.stringify` comparison with a structural deep-equal that is order-insensitive, OR sort keys before stringifying.
+
+### Q5 — Attach API removal / Auto-attach architecture
+The "Attach API" toggle button (`toggleBtn` in popup) currently calls `TOGGLE_TAB` which adds/removes tabs from ENABLED_TABS. Removing it requires:
+1. Auto-populate ENABLED_TABS in `tabs.onUpdated` when any rule matches the URL
+2. Auto-remove from ENABLED_TABS when tab navigates to non-matching URL
+3. Expand `_doSweepDebuggerAttachments` to scan ALL open tabs, not just current ENABLED_TABS
+4. Use `isAnyRuleActiveForUrl(url)` (already in `rule-engine.js:139`) as the gate for ENABLED_TABS decisions
+5. Remove `toggleBtn` from popup UI (or repurpose as "Pause for this tab" opt-out)
+See BACKLOG.md → "Auto-Attach Architecture" section for full task list.
+
+---
+
 ## Future Roadmap
 
 ### Milestone 5: Configuration & Developer Experience (Next)

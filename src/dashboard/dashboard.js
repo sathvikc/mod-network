@@ -1,8 +1,14 @@
 /**
  * Dashboard Script — Full-page UI for rule management and script editing.
- * 
+ *
  * Communicates with the service worker via chrome.runtime.sendMessage.
  * Provides spacious code editor and config UI that the popup can't fit.
+ *
+ * ⚠️  PARKED — This file uses the old flat-rules message API (GET_RULES, SAVE_RULE,
+ * UPDATE_RULE, DELETE_RULE, TOGGLE_RULE) which no longer exists in the service worker.
+ * The SW now uses the profiles-based API (GET_PROFILES, SAVE_PROFILE, UPDATE_PROFILE,
+ * DELETE_PROFILE, TOGGLE_PROFILE). The dashboard is non-functional until it is
+ * rewritten to use the profiles API. Do not remove — rebuild planned.
  */
 
 // ── State ──────────────────────────────────────────────────────

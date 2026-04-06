@@ -112,10 +112,13 @@ async function handleRequestStage(tabId, requestId, request, rules) {
     if (modifiedRequest.postData !== request.postData) {
       continueParams.postData = btoa(modifiedRequest.postData || '');
     }
-    // Only pass headers if they were structurally altered by the user script
-    const originalHeadersJson = JSON.stringify(request.headers || {});
-    const modifiedHeadersJson = JSON.stringify(modifiedRequest.headers || {});
-    if (originalHeadersJson !== modifiedHeadersJson) {
+    // Only pass headers if they were structurally altered by the user script.
+    // Sort keys before comparing to avoid false positives from key-order differences
+    // between what CDP returns and what the user script returns.
+    const sortedStringify = obj => JSON.stringify(
+      Object.fromEntries(Object.entries(obj || {}).sort(([a], [b]) => a.localeCompare(b)))
+    );
+    if (sortedStringify(request.headers) !== sortedStringify(modifiedRequest.headers)) {
       continueParams.headers = headersObjectToArray(
         typeof modifiedRequest.headers === 'object' && !Array.isArray(modifiedRequest.headers)
           ? modifiedRequest.headers

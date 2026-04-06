@@ -59,13 +59,16 @@ Non-urgent improvements to address when time permits.
 
 ## Storage & Architecture
 
-- [ ] **In-Memory Cache**: Cache profiles, global enabled state, and active profile ID in the service worker. Invalidate via `chrome.storage.onChanged`. Eliminates 150+ storage reads per page load (currently 3 `chrome.storage.local.get()` calls per intercepted request).
-- [ ] **Schema Normalization — Merge `filters`+`mods` → `rules`**: Drop the unused `profile.filters` field, rename `mods` to `rules`. Store rules in a separate `modnetwork_rules` map keyed by ID, with profiles holding only `ruleIds[]`. Industry-standard naming, cleaner model.
-- [ ] **Separate Scripts into Lazy-Loaded Storage**: Store AdvancedJS script strings in `modnetwork_scripts` keyed by script ID, separate from rule metadata. The hot path (match-checking) never touches scripts; they're loaded only when the interceptor needs to execute. Prevents quota pressure from large scripts.
-- [ ] **Write Mutex for Profile Mutations**: Add an async mutex (serialized write queue) to prevent TOCTOU race conditions in the read-modify-write pattern. Two concurrent callers (e.g., `sweepDebuggerAttachments` + popup message) can currently silently lose each other's writes.
-- [ ] **Schema Version & Migration Runner**: Add `modnetwork_schema_version` key. On startup, run a migration function that upgrades from v1 → v2 → current. Future schema changes become trivial instead of requiring ad-hoc migration code scattered in getters.
+- [ ] **Schema Normalization — Separate Scripts into Lazy-Loaded Storage**: Store AdvancedJS script strings in `modnetwork_scripts` keyed by script ID, separate from rule metadata. The hot path (match-checking) never touches scripts; they're loaded only when the interceptor needs to execute. Prevents quota pressure from large scripts.
 - [ ] **Computed Domain Match Index**: On cache invalidation, pre-compute a `domain → ruleIds` lookup map. Enables O(1) domain matching instead of iterating all rules with regex. Matters at scale (50+ rules).
 - [ ] **Quota Validation on Save**: Check `chrome.storage.local.getBytesInUse()` before writing large script updates. Surface warnings in the UI when approaching the 10MB quota (or declare `unlimitedStorage` permission).
+
+### Auto-Attach Architecture (removes "Attach API" button)
+
+- [ ] **Auto-populate ENABLED_TABS**: On `tabs.onUpdated` and `tabs.onActivated`, if `globalEnabled` AND any active rule matches the tab URL → auto-add to `ENABLED_TABS` + call `syncDNRRules()`. Remove the requirement for the user to manually click "Attach API".
+- [ ] **Sweep all open tabs on rule changes**: Modify `_doSweepDebuggerAttachments` to evaluate ALL open Chrome tabs (not just ENABLED_TABS). Tabs with no matching rules should be removed from ENABLED_TABS; tabs with matching rules auto-added.
+- [ ] **Remove "Attach API" toggle button from popup**: Once auto-attach is wired, the button is redundant. Consider replacing with a per-tab opt-out ("Pause for this tab") instead of the current opt-in model.
+- [ ] **Auto-remove from ENABLED_TABS on navigation**: When a tab navigates to a URL that no longer matches any rule, remove it from ENABLED_TABS and recompile DNR. Currently `tabs.onUpdated` skips this step if tab was never manually enabled.
 
 ---
 
@@ -74,6 +77,9 @@ Non-urgent improvements to address when time permits.
 - [ ] Remove verbose debug logging once stable (the `⚡📦🔧🎉` logs).
 - [ ] Add proper error boundaries in popup.
 - [ ] Performance: Only load AdvJS scripts when the interceptor actually needs to execute them (hot path currently loads everything).
-- [ ] Remove legacy `modnetwork_rules` → profiles migration code from `getProfiles()`. Runs on every hot-path read but no user should have legacy data after v0.12.0.
-- [ ] Fix `createMod` dual semantics — it currently mixes "create with defaults" and "import existing data" in the same function, leading to subtle override bugs.
+- [ ] Remove legacy `modnetwork_rules` → profiles migration code from `runMigrations()`. No user should have pre-v0.12.0 data after the v3 migration runs.
+- [ ] **Popup `add-mod-btn` creates rules inline without `createRule()`** — new rules have no type-specific defaults (no `headers` array for ModifyHeader, no `scripts` for AdvancedJS). Fix: use `createRule(type)` from storage-manager in the `add-mod-btn` handler in `popup.js`.
+- [ ] **Popup only supports one header per ModifyHeader rule** — `mod.headers[0]` hardcoded. Multi-header UI needed.
+- [ ] **`isAttached()` in `debugger-manager.js` returns `isTabEnabled()`** — misleading; means popup shows "Debugger Attached" even for DNR-only tabs. Rename or split: use `isTabEnabled` for the badge/status indicator, `isTabAttached` for actual CDP state. Fix popup label from "Debugger Attached" → "Intercepting".
+- [ ] **DNR response header modifications may be bypassed when AdvJS calls `Fetch.fulfillRequest`** — `fulfillRequest` replaces the entire response; if Chrome's DNR response-header rules run AFTER CDP Fetch, they are skipped. Needs empirical testing on Chrome ≥ 120. (See PROGRESS.md open questions.)
 - [ ] **Architecture Note**: The two-engine design (`ENABLED_TABS` for DNR + `ATTACHED_TABS` for Debugger) is now stable. Any future change to tab attachment logic must maintain this decoupling or DNR features will break when AdvJS is disabled.

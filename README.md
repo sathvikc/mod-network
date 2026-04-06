@@ -74,7 +74,9 @@ ModNetwork has **two independent engines** running side-by-side:
 3. Your JavaScript functions execute in a **sandboxed iframe** and return modified data
 4. The modified request/response continues through Chrome
 
-> Turning off AdvancedJS rules automatically detaches the debugger — DNR rules keep running.
+> **Disabling an AdvancedJS rule** (the rule's toggle) automatically detaches the debugger — DNR rules (Block, Redirect, ModifyHeader) keep running unaffected.
+>
+> **Clicking the "Attach API" toggle button** disables the entire tab from interception (both engines). This button is a temporary control — future versions will auto-enable tabs based on matching rules.
 
 ## Writing Transform Scripts
 

@@ -219,13 +219,13 @@ async function updateActiveDebuggers() {
   const tabs = await getAttachedTabs();
   if (tabs.length === 0) return;
 
-  const patterns = await generateFetchPatterns();
-  const fetchParams = {
-    patterns: patterns.length > 0 ? patterns : [{ urlPattern: 'http://255.255.255.255:0/*', requestStage: 'Request' }]
-  };
-
+  // Generate patterns per-tab so path-only rules stay domain-locked to each tab's host.
   const promises = [...tabs].map(async tabId => {
     try {
+      const patterns = await generateFetchPatterns(tabId);
+      const fetchParams = {
+        patterns: patterns.length > 0 ? patterns : [{ urlPattern: 'http://255.255.255.255:0/*', requestStage: 'Request' }]
+      };
       await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', fetchParams);
       console.log(`[ModNetwork] Updated Fetch patterns for active tab ${tabId}`);
     } catch (e) {
