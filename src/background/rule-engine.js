@@ -25,7 +25,7 @@ function escapeRegex(str) {
 function parseSmartUrlPattern(input, tabDomains = []) {
   let str = (input || '').trim();
   if (!str || str === '*' || str === '*://*/*' || str === '<all_urls>') return '^https?:\\/\\/.*$';
-  
+
   if (str.startsWith('/')) {
     if (tabDomains.length > 0) {
       const domainGroup = tabDomains.length === 1 ? escapeRegex(tabDomains[0]) : '(' + tabDomains.map(escapeRegex).join('|') + ')';
@@ -39,12 +39,12 @@ function parseSmartUrlPattern(input, tabDomains = []) {
   } else if (!str.includes('://') && !str.startsWith('*')) {
     str = '*://*' + str;
   }
-  
+
   // Rule: Missing trailing wildcard if it looks like a path or domain
   if (!str.endsWith('*')) {
     str = str + '*';
   }
-  
+
   let regexStr = str.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
   return '^' + regexStr + '$';
 }
@@ -63,7 +63,7 @@ function matchesUrl(url, matchObj, tabDomains = []) {
       return false;
     }
   }
-  
+
   try { return patternToRegex(pattern, tabDomains).test(url); }
   catch (e) {
     console.error(`[RuleEngine] Invalid Wildcard for rule: ${pattern}`, e);
@@ -93,9 +93,9 @@ async function findMatchingRules(url, resourceType, stage, tabDomains = []) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
       if (stage === 'Request' && !mod.scripts?.onBeforeRequest) continue;
       if (stage === 'Response' && !mod.scripts?.onResponse) continue;
-      
+
       const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
-      
+
       if (matchesUrl(url, matchObj, tabDomains) && matchesResourceType(resourceType, matchObj.resourceTypes)) {
         console.log(`[RuleEngine] Match identified: Profile [${profile.name}] -> Mod [${mod.name || 'Script'}] for URL ${url}`);
         matchingMods.push(mod);
@@ -116,7 +116,7 @@ async function hasAdvancedJSRuleForUrl(url) {
 
   let tabDomains = [];
   if (url && url.startsWith('http')) {
-    try { tabDomains = [new URL(url).host]; } catch(e) {}
+    try { tabDomains = [new URL(url).host]; } catch (e) { }
   }
 
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
@@ -142,7 +142,7 @@ async function isAnyRuleActiveForUrl(url) {
 
   let tabDomains = [];
   if (url && url.startsWith('http')) {
-    try { tabDomains = [new URL(url).host]; } catch(e) {}
+    try { tabDomains = [new URL(url).host]; } catch (e) { }
   }
 
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
@@ -164,11 +164,13 @@ async function isAnyRuleActiveForUrl(url) {
  *
  * Unlike parseSmartUrlPattern (which returns a Regex string), this function returns
  * a valid Chrome URL pattern string for use in CDP Fetch.enable and declarativeNetRequest.
- *
+ * Path-only inputs are prefixed with the tabHost domain (or wildcard if null).
+ * Returns a valid Chrome URL match pattern string, not a regex.
+ * 
  * Examples:
  *   parseChromeMatchPattern('/api/users/', 'localhost:8765')  outputs  '*://localhost:8765/api/users/*'
- *   parseChromeMatchPattern('*://*/*', 'localhost:8765')      outputs  '*://*/*' (wildcard is universal)
- *   parseChromeMatchPattern('example.com/api/', null)         outputs  '*://example.com/api/*'
+ *   parseChromeMatchPattern('*:\/*\/*', 'localhost:8765')      outputs  '*://*\/*'  -- wildcard is universal, host param is ignored
+ *   parseChromeMatchPattern('example.com/api/', null)  
  */
 function parseChromeMatchPattern(input, tabHost = null) {
   let str = (input || '').trim();
@@ -208,7 +210,7 @@ async function generateFetchPatterns(tabId = null) {
       if (tab && tab.url && tab.url.startsWith('http')) {
         tabHost = new URL(tab.url).host;
       }
-    } catch(e) {}
+    } catch (e) { }
   }
 
   const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
@@ -216,14 +218,14 @@ async function generateFetchPatterns(tabId = null) {
 
   for (const [i, profile] of profiles.entries()) {
     if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
-    
+
     for (const mod of profile.rules) {
       if (!mod.enabled || mod.type !== 'AdvancedJS') continue;
-      
+
       let wantsRequest = !!mod.scripts?.onBeforeRequest;
       let wantsResponse = !!mod.scripts?.onResponse;
       if (!wantsRequest && !wantsResponse) continue;
-      
+
       const matchObj = mod.match || { urlPattern: '*://*/*', resourceTypes: [] };
       // Use surgical domain-locked pattern for CDP — prevents over-interception
       const urlPattern = parseChromeMatchPattern(matchObj.urlPattern, tabHost);
@@ -298,7 +300,7 @@ async function _doSyncDNRRules() {
         if (t && t.url && t.url.startsWith('http')) {
           enabledTabDomains.push(new URL(t.url).host);
         }
-      } catch(e) {}
+      } catch (e) { }
     }
 
     for (const [i, profile] of profiles.entries()) {
@@ -309,12 +311,12 @@ async function _doSyncDNRRules() {
 
         const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
         const condition = {};
-        
+
         // Scope DNR rules to only the user-enabled tabs
         condition.tabIds = enabledTabs;
-        
+
         let pattern = matchObj.urlPattern || '*://*/*';
-        
+
         if (matchObj.type === 'regex') {
           if (pattern === '*://*/*' || pattern === '<all_urls>') {
             condition.regexFilter = '.*';
@@ -322,7 +324,7 @@ async function _doSyncDNRRules() {
             try {
               new RegExp(pattern);
               condition.regexFilter = pattern;
-            } catch(e) {
+            } catch (e) {
               console.error(`[RuleEngine] Invalid regex filter: ${pattern}. Skipping DNR rule to prevent engine crash.`);
               continue;
             }
@@ -330,7 +332,7 @@ async function _doSyncDNRRules() {
         } else {
           condition.regexFilter = parseSmartUrlPattern(pattern, enabledTabDomains);
         }
-        
+
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
           condition.resourceTypes = [...new Set(matchObj.resourceTypes.map(mapResourceType))];
         }
@@ -338,14 +340,14 @@ async function _doSyncDNRRules() {
         if (mod.type === 'ModifyHeader' && mod.headers && mod.headers.length > 0) {
           const requestHeaders = [];
           const responseHeaders = [];
-          
+
           mod.headers.forEach(h => {
             const headerRule = { header: h.name, operation: h.operation };
             if (h.operation !== 'remove') headerRule.value = h.value;
             if (h.stage === 'Request') requestHeaders.push(headerRule);
             else responseHeaders.push(headerRule);
           });
-          
+
           if (requestHeaders.length > 0 || responseHeaders.length > 0) {
             const action = { type: 'modifyHeaders' };
             if (requestHeaders.length > 0) action.requestHeaders = requestHeaders;
