@@ -119,26 +119,33 @@ chrome.runtime.onInstalled.addListener(async (details) => {
           type: 'ModifyHeader',
           name: "Test Header",
           enabled: true,
-          match: { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] },
-          headers: [{ operation: 'set', name: 'X-ModNetwork-Test', value: 'Active', stage: 'Request' }]
+          match: { type: 'wildcard', urlPattern: 'http://localhost:8765/', resourceTypes: [] },
+          headers: [{ operation: 'set', name: 'X-ModNetwork-Request', value: 'Added', stage: 'Request' }]
         },
         {
           type: 'Redirect',
           name: "Test Image Redirect",
           enabled: false,
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/api/cat.svg', resourceTypes: [] },
+          match: { type: 'wildcard', urlPattern: 'http://localhost:8765/api/cat.svg', resourceTypes: [] },
           redirectUrl: 'http://localhost:8765/api/dog.svg'
         },
         {
           type: 'AdvancedJS',
           name: "Local Dev UI Injector",
-          enabled: false,
-          match: { type: 'wildcard', urlPattern: '*://localhost:8765/*', resourceTypes: [] },
+          enabled: true,
+          match: { type: 'wildcard', urlPattern: 'http://localhost:8765/', resourceTypes: [] },
           scripts: {
             onBeforeRequest: null,
             onResponse: responseScript
           }
-        }
+        },
+        {
+          type: 'ModifyHeader',
+          name: "Test Header",
+          enabled: true,
+          match: { type: 'wildcard', urlPattern: 'http://localhost:8765/', resourceTypes: [] },
+          headers: [{ operation: 'set', name: 'X-ModNetwork-Response', value: 'Added', stage: 'Response' }]
+        },
       ]
     });
     console.log('[ModNetwork] Demo profile created');

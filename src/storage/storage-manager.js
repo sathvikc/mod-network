@@ -115,7 +115,7 @@ function createRule(type, overrides = {}) {
     name: overrides.name || `New ${type}`,
     type: type, // 'ModifyHeader', 'Redirect', 'AdvancedJS'
     enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-    match: overrides.match !== undefined ? overrides.match : { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: ['Document', 'XHR', 'Fetch'] },
+    match: overrides.match !== undefined ? overrides.match : { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] },
     createdAt: overrides.createdAt || now,
     updatedAt: now
   };
@@ -149,7 +149,7 @@ async function getProfiles() {
 
   let result = await chrome.storage.local.get(STORAGE_KEYS.PROFILES);
   let profiles = result[STORAGE_KEYS.PROFILES] || [];
-  
+
   _cache.profiles = profiles;
   return profiles;
 }
@@ -226,11 +226,11 @@ async function runMigrations() {
   return withProfileWriteLock(async () => {
     let legacyData = await chrome.storage.local.get(Object.values(LEGACY_KEYS));
     let newData = await chrome.storage.local.get(Object.values(STORAGE_KEYS));
-    
+
     let currentVersion = newData[STORAGE_KEYS.SCHEMA_VERSION] || legacyData[LEGACY_KEYS.SCHEMA_VERSION] || 1;
-    
+
     if (currentVersion >= TARGET_SCHEMA_VERSION) return;
-    
+
     if (currentVersion < 2) {
       console.log('[StorageManager] Running migration v1 -> v2 (mods to rules)...');
       let profiles = legacyData[LEGACY_KEYS.PROFILES] || [];
@@ -256,7 +256,7 @@ async function runMigrations() {
 
     if (currentVersion < 3) {
       console.log('[StorageManager] Running migration v2 -> v3 (silent backup + key prefix removal)...');
-      
+
       const legacyProfiles = legacyData[LEGACY_KEYS.PROFILES] || [];
 
       // Silent Backup of the entire profiles list before prefix transition
@@ -278,10 +278,10 @@ async function runMigrations() {
       }
 
       await chrome.storage.local.set(migratedPayload);
-      
+
       // Delete legacy key footprint entirely to avoid double-state
       await chrome.storage.local.remove(Object.values(LEGACY_KEYS));
-      
+
       currentVersion = 3;
     }
 
