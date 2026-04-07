@@ -18,7 +18,6 @@ const profileToggle = $('#profileToggle');
 
 const statusDot = $('#statusDot');
 const statusText = $('#statusText');
-const toggleBtn = $('#toggleBtn');
 const globalToggle = $('#globalToggle');
 
 // ── Messaging ──────────────────────────────────────────────────
@@ -49,18 +48,16 @@ async function loadGlobalToggle() {
 async function initTabStatus() {
   if (!currentTabId) return;
   const response = await sendMessage({ type: 'GET_TAB_STATUS', tabId: currentTabId });
-  updateTabUI(response.attached);
+  updateTabUI(response.active);
 }
 
-function updateTabUI(isAttached) {
-  if (isAttached) {
+function updateTabUI(isActive) {
+  if (isActive) {
     statusDot.className = 'status-dot active';
     statusText.textContent = 'Intercepting';
-    toggleBtn.classList.add('active');
   } else {
     statusDot.className = 'status-dot inactive';
     statusText.textContent = 'Inactive';
-    toggleBtn.classList.remove('active');
   }
 }
 
@@ -427,7 +424,7 @@ function setupEventListeners() {
       };
       // Add type-specific defaults so render and save handlers always have required fields
       if (type === 'ModifyHeader') {
-        rule.headers = [];
+        rule.headers = [{ name: '', value: '', operation: 'set', stage: 'Request' }];
       } else if (type === 'AdvancedJS') {
         rule.scripts = { onBeforeRequest: null, onResponse: null };
       } else if (type === 'Redirect') {
@@ -437,14 +434,6 @@ function setupEventListeners() {
       await saveActiveProfile();
       renderMain();
     });
-  });
-
-  toggleBtn.addEventListener('click', async () => {
-    if (!currentTabId) return;
-    const response = await sendMessage({ type: 'TOGGLE_TAB', tabId: currentTabId });
-    if (response && response.success) {
-      updateTabUI(response.attached);
-    }
   });
 
   globalToggle.addEventListener('change', async () => {
