@@ -317,7 +317,8 @@ async function _doSyncDNRRules() {
             }
           }
         } else {
-          condition.regexFilter = parseSmartUrlPattern(pattern);
+          // Wildcard → use urlFilter (simpler, more reliable than regexFilter for DNR)
+          condition.urlFilter = parseChromeMatchPattern(pattern);
         }
 
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
