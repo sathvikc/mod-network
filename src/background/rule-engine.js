@@ -2,7 +2,7 @@
  * RuleEngine — Matches incoming requests against user-defined Profiles and Mods.
  */
 
-import { getProfiles, getGlobalEnabled, getActiveProfileId, getEnabledTabs } from '../storage/storage-manager.js';
+import { getProfiles, getGlobalEnabled, getActiveProfileId } from '../storage/storage-manager.js';
 
 /**
  * A profile's rules are active if it is explicitly enabled AND it is either
@@ -271,8 +271,8 @@ async function syncDNRRules() {
 }
 
 async function _doSyncDNRRules() {
-  const [globalEnabled, profiles, activeProfileId, enabledTabs] = await Promise.all([
-    getGlobalEnabled(), getProfiles(), getActiveProfileId(), getEnabledTabs()
+  const [globalEnabled, profiles, activeProfileId] = await Promise.all([
+    getGlobalEnabled(), getProfiles(), getActiveProfileId()
   ]);
 
   // Clean up any stray dynamic rules from older versions
@@ -292,17 +292,7 @@ async function _doSyncDNRRules() {
     return map[cdpType] || 'other';
   };
 
-  if (globalEnabled && enabledTabs.length > 0) {
-    const enabledTabDomains = [];
-    for (const tabId of enabledTabs) {
-      try {
-        const t = await chrome.tabs.get(tabId);
-        if (t && t.url && t.url.startsWith('http')) {
-          enabledTabDomains.push(new URL(t.url).host);
-        }
-      } catch (e) { }
-    }
-
+  if (globalEnabled) {
     for (const [i, profile] of profiles.entries()) {
       if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
 
@@ -311,9 +301,6 @@ async function _doSyncDNRRules() {
 
         const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
         const condition = {};
-
-        // Scope DNR rules to only the user-enabled tabs
-        condition.tabIds = enabledTabs;
 
         let pattern = matchObj.urlPattern || '*://*/*';
 
@@ -330,7 +317,7 @@ async function _doSyncDNRRules() {
             }
           }
         } else {
-          condition.regexFilter = parseSmartUrlPattern(pattern, enabledTabDomains);
+          condition.regexFilter = parseSmartUrlPattern(pattern);
         }
 
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
@@ -364,10 +351,45 @@ async function _doSyncDNRRules() {
   }
 
   await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds, addRules });
-  console.log(`[ModNetwork] DNR Engine Synced: Removed ${removeRuleIds.length}, Added ${addRules.length} rules. Enabled Tabs: [${enabledTabs.join(', ')}]`);
+  console.log(`[ModNetwork] DNR Engine Synced: Removed ${removeRuleIds.length}, Added ${addRules.length} rules (global scope)`);
   if (addRules.length > 0) {
     console.log(`[ModNetwork] Active DNR Compilation: `, addRules);
   }
+}
+
+/**
+ * Find all active ModifyHeader response-stage headers that match this URL.
+ * Used by the interceptor to manually apply response header rules when
+ * Fetch.fulfillRequest would otherwise bypass DNR response header processing.
+ *
+ * Returns a flat array of { name, value, operation } header modifications.
+ */
+async function findMatchingResponseHeaderRules(url, resourceType, tabDomains = []) {
+  const globalEnabled = await getGlobalEnabled();
+  if (!globalEnabled) return [];
+
+  const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
+  const headers = [];
+
+  for (const [i, profile] of profiles.entries()) {
+    if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
+
+    for (const mod of profile.rules) {
+      if (!mod.enabled || mod.type !== 'ModifyHeader') continue;
+      if (!mod.headers || mod.headers.length === 0) continue;
+
+      const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
+      if (!matchesUrl(url, matchObj, tabDomains) || !matchesResourceType(resourceType, matchObj.resourceTypes)) continue;
+
+      for (const h of mod.headers) {
+        if (h.stage === 'Response') {
+          headers.push({ name: h.name, value: h.value, operation: h.operation });
+        }
+      }
+    }
+  }
+
+  return headers;
 }
 
 export {
@@ -375,6 +397,7 @@ export {
   matchesUrl,
   matchesResourceType,
   findMatchingRules,
+  findMatchingResponseHeaderRules,
   hasAdvancedJSRuleForUrl,
   isAnyRuleActiveForUrl,
   generateFetchPatterns,
