@@ -6,7 +6,7 @@
  */
 
 import { sendCommand } from './debugger-manager.js';
-import { findMatchingRules } from './rule-engine.js';
+import { findMatchingRules, findMatchingResponseHeaderRules } from './rule-engine.js';
 import { executeRequestScript, executeResponseScript } from './script-bridge.js';
 
 /**
@@ -65,7 +65,7 @@ async function handleRequestPaused(source, params) {
     if (stage === 'Request') {
       await handleRequestStage(tabId, requestId, request, matchingRules);
     } else {
-      await handleResponseStage(tabId, requestId, request, params.responseStatusCode, params.responseHeaders, matchingRules);
+      await handleResponseStage(tabId, requestId, request, params.responseStatusCode, params.responseHeaders, resourceType, matchingRules);
     }
   } catch (error) {
     console.error(`[ModNetwork] ❌ Error handling ${stage} for ${request.url}:`, error);
@@ -133,10 +133,52 @@ async function handleRequestStage(tabId, requestId, request, rules) {
 }
 
 /**
- * Handle interception at the Response stage.
+ * Apply ModifyHeader rules (set/append/remove) to a headers object.
+ * Mutates the headers object in place.
+ * @param {Object} headers — Plain object of header name → value.
+ * @param {Array} headerRules — Array of { name, value, operation }.
  */
-async function handleResponseStage(tabId, requestId, request, statusCode, responseHeaders, rules) {
-  console.log(`[ModNetwork] 📦 Processing response for: ${request.url}`);
+function applyHeaderRules(headers, headerRules) {
+  for (const rule of headerRules) {
+    const op = rule.operation || 'set';
+    if (op === 'remove') {
+      // Case-insensitive removal
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === rule.name.toLowerCase()) {
+          delete headers[key];
+        }
+      }
+    } else if (op === 'append') {
+      // Find existing header (case-insensitive) and append, or create new
+      const existingKey = Object.keys(headers).find(k => k.toLowerCase() === rule.name.toLowerCase());
+      if (existingKey) {
+        headers[existingKey] = headers[existingKey] + ', ' + rule.value;
+      } else {
+        headers[rule.name] = rule.value;
+      }
+    } else {
+      // 'set' — overwrite or create (case-insensitive match for existing)
+      const existingKey = Object.keys(headers).find(k => k.toLowerCase() === rule.name.toLowerCase());
+      if (existingKey) {
+        delete headers[existingKey];
+      }
+      headers[rule.name] = rule.value;
+    }
+  }
+}
+
+/**
+ * Handle interception at the Response stage.
+ *
+ * Pipeline order:
+ *   1. Fetch original response body + headers
+ *   2. Apply ModifyHeader response rules (equivalent to what DNR would do,
+ *      but DNR response headers are bypassed when Fetch.fulfillRequest is used)
+ *   3. Run AdvancedJS onResponse scripts (can see and override header changes)
+ *   4. Fulfill or continue the request
+ */
+async function handleResponseStage(tabId, requestId, request, statusCode, responseHeaders, resourceType, rules) {
+  console.log(`[ModNetwork] Processing response for: ${request.url}`);
 
   // Get the original response body
   let bodyResult;
@@ -162,10 +204,31 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
 
   let wasModified = false;
 
+  // Step 1: Apply ModifyHeader response rules.
+  // When Fetch.fulfillRequest replaces the response, DNR response header
+  // modifications are bypassed. We manually apply them here so they're
+  // included regardless of whether AdvancedJS also modifies the body.
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  let tabDomains = [];
+  if (tab && tab.url && tab.url.startsWith('http')) {
+    tabDomains.push(new URL(tab.url).host);
+  }
+
+  const headerRules = await findMatchingResponseHeaderRules(request.url, resourceType, tabDomains);
+
+  if (headerRules.length > 0) {
+    applyHeaderRules(modifiedResponse.headers, headerRules);
+    wasModified = true;
+    console.log(`[ModNetwork] Applied ${headerRules.length} ModifyHeader response rules to ${request.url}`);
+  }
+
+  // Step 2: Run AdvancedJS onResponse scripts.
+  // Scripts see the headers after ModifyHeader rules have been applied,
+  // so they can inspect or override them.
   for (const rule of rules) {
     if (!rule.scripts.onResponse) continue;
 
-    console.log(`[ModNetwork] 🔧 Running onResponse script from rule: "${rule.name}"`);
+    console.log(`[ModNetwork] Running onResponse script from rule: "${rule.name}"`);
 
     const requestData = {
       url: request.url,
@@ -180,22 +243,18 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
       tabId
     );
 
-    console.log(`[ModNetwork] Script result type:`, typeof result, result ? Object.keys(result) : 'null');
-
     if (result) {
-      // The user script returns context.response or the full context
-      // Handle both: { response: {...} } or { body, headers, statusCode }
       const newResponse = result.response || result;
       if (newResponse.body !== undefined) {
         modifiedResponse = { ...modifiedResponse, ...newResponse };
         wasModified = true;
-        console.log(`[ModNetwork] ✅ Response body modified (${modifiedResponse.body.length} chars)`);
+        console.log(`[ModNetwork] Response body modified (${modifiedResponse.body.length} chars)`);
       }
     }
   }
 
   if (wasModified) {
-    // Strip content-length since we mutated the body size. Chrome will automatically recalculate it.
+    // Strip content-length since we may have mutated the body size.
     if (modifiedResponse.headers) {
       delete modifiedResponse.headers['Content-Length'];
       delete modifiedResponse.headers['content-length'];
@@ -209,7 +268,7 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
     };
 
     await sendCommand(tabId, 'Fetch.fulfillRequest', fulfillParams);
-    console.log(`[ModNetwork] 🎉 Response fulfilled: ${request.url}`);
+    console.log(`[ModNetwork] Response fulfilled: ${request.url}`);
   } else {
     await sendCommand(tabId, 'Fetch.continueRequest', { requestId });
     console.log(`[ModNetwork] Response passed through: ${request.url}`);
