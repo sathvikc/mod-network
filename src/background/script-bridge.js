@@ -14,6 +14,7 @@
 let offscreenDocumentCreated = false;
 
 const OFFSCREEN_URL = 'offscreen/offscreen.html';
+const SCRIPT_EXECUTION_TIMEOUT_MS = 5000;
 
 /**
  * Ensure the offscreen document exists.
@@ -68,14 +69,34 @@ async function ensureOffscreenDocument() {
  */
 async function executeScript(scriptCode, context) {
   await ensureOffscreenDocument();
+  const messageId = crypto.randomUUID();
 
-  // Send to offscreen doc and wait for sendResponse reply
-  const response = await chrome.runtime.sendMessage({
+  // Send to offscreen doc and wait for sendResponse reply, with timeout protection.
+  let timeoutId;
+  const timeoutPromise = new Promise(resolve => {
+    timeoutId = setTimeout(() => resolve({ timeout: true }), SCRIPT_EXECUTION_TIMEOUT_MS);
+  });
+  const sendPromise = chrome.runtime.sendMessage({
     type: 'EXECUTE_SCRIPT',
-    messageId: crypto.randomUUID(),
+    messageId,
     scriptCode,
     context
-  });
+  }).then(
+    response => ({ response }),
+    error => ({ error })
+  );
+
+  const outcome = await Promise.race([sendPromise, timeoutPromise]);
+  clearTimeout(timeoutId);
+
+  if (outcome.timeout) {
+    throw new Error(`Script execution timeout after ${SCRIPT_EXECUTION_TIMEOUT_MS}ms`);
+  }
+  if (outcome.error) {
+    throw outcome.error instanceof Error ? outcome.error : new Error(String(outcome.error));
+  }
+
+  const response = outcome.response;
 
   if (response?.error) {
     throw new Error(response.error);

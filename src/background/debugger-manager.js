@@ -68,12 +68,18 @@ async function detachFromTab(tabId) {
   try {
     await chrome.debugger.detach({ tabId });
     console.log(`[ModNetwork] Debugger detached from tab ${tabId}`);
+    await removeAttachedTab(tabId);
+    return true;
   } catch (error) {
+    const errMsg = (error?.message || '').toLowerCase();
+    const alreadyDetached = errMsg.includes('not attached') || errMsg.includes('no target with given id');
     console.warn(`[ModNetwork] Detach warning for tab ${tabId}:`, error.message);
+    if (alreadyDetached) {
+      await removeAttachedTab(tabId);
+      return true;
+    }
+    return false;
   }
-
-  await removeAttachedTab(tabId);
-  return true;
 }
 
 /**

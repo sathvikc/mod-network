@@ -67,12 +67,31 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 /**
- * When user switches tabs, reconcile debugger state for the newly active tab.
+ * When user switches tabs, reconcile debugger state for ALL attached tabs.
+ * Detach tabs that no longer need debugger, attach/keep the new tab if needed.
  */
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  // Detach all other attached tabs that no longer need the debugger
+  const attachedTabs = await getAttachedTabs();
+  for (const attachedTabId of attachedTabs) {
+    if (attachedTabId === tabId) continue;
+    try {
+      const t = await chrome.tabs.get(attachedTabId);
+      if (!t.url || !t.url.startsWith('http') || !(await hasAdvancedJSRuleForUrl(t.url))) {
+        await detachFromTab(attachedTabId);
+      }
+    } catch {
+      await removeAttachedTab(attachedTabId);
+    }
+  }
+
+  // Handle the newly active tab
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab || tab.status !== 'complete' || !tab.url) return;
-  if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) return;
+  if (!tab || !tab.url) return;
+  if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
+    if (await isTabAttached(tabId)) await detachFromTab(tabId);
+    return;
+  }
 
   await reconcileTab(tabId, tab.url);
 });

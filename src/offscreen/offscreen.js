@@ -8,6 +8,7 @@
 
 const sandboxFrame = document.getElementById('sandbox');
 const pendingRequests = new Map();
+const SCRIPT_EXECUTION_TIMEOUT_MS = 5000;
 
 // Set the sandbox iframe src using chrome.runtime.getURL for proper extension URL resolution
 sandboxFrame.src = chrome.runtime.getURL('sandbox/sandbox.html');
@@ -19,6 +20,15 @@ sandboxFrame.addEventListener('load', () => {
   console.log('[ModNetwork Offscreen] Sandbox iframe loaded');
 });
 
+function resolvePendingRequest(messageId, payload) {
+  const pending = pendingRequests.get(messageId);
+  if (!pending) return;
+
+  pendingRequests.delete(messageId);
+  clearTimeout(pending.timeoutId);
+  pending.sendResponse(payload);
+}
+
 /**
  * Listen for messages from the service worker.
  */
@@ -26,12 +36,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type !== 'EXECUTE_SCRIPT') return false;
 
   const { messageId, scriptCode, context } = message;
-
-  // Store the sendResponse callback to reply when sandbox returns
-  pendingRequests.set(messageId, sendResponse);
+  // Store sendResponse callback and fail-safe timeout to avoid hanging requests.
+  const timeoutId = setTimeout(() => {
+    resolvePendingRequest(messageId, {
+      error: `Script execution timeout after ${SCRIPT_EXECUTION_TIMEOUT_MS}ms`
+    });
+  }, SCRIPT_EXECUTION_TIMEOUT_MS);
+  pendingRequests.set(messageId, { sendResponse, timeoutId });
 
   // Forward to the sandboxed iframe
   const sendToSandbox = () => {
+    if (!sandboxFrame.contentWindow) {
+      resolvePendingRequest(messageId, { error: 'Sandbox iframe not available' });
+      return;
+    }
     sandboxFrame.contentWindow.postMessage({
       messageId,
       scriptCode,
@@ -88,17 +106,8 @@ window.addEventListener('message', async (event) => {
   // Handle script execution results
   const { messageId, success, result, error } = data;
   if (!messageId) return;
-
-  const sendResponse = pendingRequests.get(messageId);
-  if (!sendResponse) return;
-
-  pendingRequests.delete(messageId);
-
-  if (success) {
-    sendResponse({ result });
-  } else {
-    sendResponse({ error });
-  }
+  if (success) resolvePendingRequest(messageId, { result });
+  else resolvePendingRequest(messageId, { error });
 });
 
 console.log('[ModNetwork Offscreen] Ready');
