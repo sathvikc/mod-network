@@ -22,3 +22,9 @@ _agents/
 # Build artifacts
 dist/
 build/
+
+
+.code-review-graph/
+.mcp.json
+.claude/
+CLAUDE.md

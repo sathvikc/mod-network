@@ -56,7 +56,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
  * When a tab finishes loading, reconcile debugger state for that tab.
  */
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete' || !tab.url) return;
+  // React to page load completion AND mid-navigation URL changes (e.g. redirects)
+  if (!changeInfo.status && !changeInfo.url) return;
+  if (!tab.url) return;
 
   if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
     if (await isTabAttached(tabId)) await detachFromTab(tabId);
