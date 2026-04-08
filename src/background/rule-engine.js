@@ -323,6 +323,14 @@ async function _doSyncDNRRules() {
 
         if (matchObj.resourceTypes && matchObj.resourceTypes.length > 0) {
           condition.resourceTypes = [...new Set(matchObj.resourceTypes.map(mapResourceType))];
+        } else {
+          // Chrome DNR excludes main_frame by default when resourceTypes is omitted.
+          // Explicitly include all types so rules apply to all requests including page loads.
+          condition.resourceTypes = [
+            'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+            'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+            'media', 'websocket', 'webtransport', 'webbundle', 'other'
+          ];
         }
 
         if (mod.type === 'ModifyHeader' && mod.headers && mod.headers.length > 0) {
