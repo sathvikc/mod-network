@@ -29,9 +29,9 @@ function parseSmartUrlPattern(input, tabDomains = []) {
   if (str.startsWith('/')) {
     if (tabDomains.length > 0) {
       const domainGroup = tabDomains.length === 1 ? escapeRegex(tabDomains[0]) : '(' + tabDomains.map(escapeRegex).join('|') + ')';
-      let endRegex = escapeRegex(str);
+      // Convert the path to regex: escape special chars, then replace * wildcards with .*
+      let endRegex = escapeRegex(str).replace(/\*/g, '.*');
       if (!str.endsWith('*')) endRegex += '.*';
-      else endRegex = endRegex.replace(/\\\*$/, '.*');
       return '^https?:\\/\\/' + domainGroup + endRegex + '$';
     } else {
       str = '*://*' + str;
@@ -45,7 +45,7 @@ function parseSmartUrlPattern(input, tabDomains = []) {
     str = str + '*';
   }
 
-  let regexStr = str.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  let regexStr = str.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return '^' + regexStr + '$';
 }
 
