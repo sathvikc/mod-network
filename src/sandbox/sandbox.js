@@ -77,9 +77,16 @@ window.addEventListener('message', async (event) => {
       if (context.response) context.response.body = JSON.stringify(obj);
     };
     context.getRequestHeader = function(name) {
-      const hdrs = context.request?.headers || [];
-      const header = hdrs.find(h => h.name.toLowerCase() === name.toLowerCase());
-      return header ? header.value : null;
+      const hdrs = context.request?.headers;
+      if (!hdrs) return null;
+      // Headers can be a plain object {name: value} or an array [{name, value}]
+      if (Array.isArray(hdrs)) {
+        const header = hdrs.find(h => h.name.toLowerCase() === name.toLowerCase());
+        return header ? header.value : null;
+      }
+      // Plain object — case-insensitive key lookup
+      const key = Object.keys(hdrs).find(k => k.toLowerCase() === name.toLowerCase());
+      return key ? hdrs[key] : null;
     };
 
     // Execute with the fetch proxy
