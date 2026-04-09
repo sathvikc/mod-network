@@ -338,6 +338,22 @@ async function setGlobalEnabled(enabled) {
 
 // ── Ephemeral Session State (chrome.storage.session) ───────────────────
 
+// Write lock for session tab state — prevents concurrent read-modify-write
+// from losing data (e.g. two tabs attaching simultaneously).
+let _sessionTabLock = Promise.resolve();
+
+async function withSessionTabLock(fn) {
+  let release;
+  const currentLock = _sessionTabLock;
+  _sessionTabLock = new Promise(r => release = r);
+  try {
+    await currentLock;
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 /**
  * Check if the debugger is actively attached to a tab.
  */
@@ -368,20 +384,24 @@ async function getAttachedTabs() {
  * Record a tab as attached.
  */
 async function addAttachedTab(tabId) {
-  const tabs = await getAttachedTabs();
-  if (!tabs.includes(tabId)) {
-    tabs.push(tabId);
-    await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
-  }
+  return withSessionTabLock(async () => {
+    const tabs = await getAttachedTabs();
+    if (!tabs.includes(tabId)) {
+      tabs.push(tabId);
+      await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
+    }
+  });
 }
 
 /**
  * Remove a tab record.
  */
 async function removeAttachedTab(tabId) {
-  let tabs = await getAttachedTabs();
-  tabs = tabs.filter(id => id !== tabId);
-  await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
+  return withSessionTabLock(async () => {
+    let tabs = await getAttachedTabs();
+    tabs = tabs.filter(id => id !== tabId);
+    await chrome.storage.session.set({ [SESSION_KEYS.ATTACHED_TABS]: tabs });
+  });
 }
 
 export {
