@@ -191,6 +191,20 @@ function applyHeaderRules(headers, headerRules) {
 }
 
 /**
+ * Determine if a Content-Type header value represents text content
+ * that is safe to decode as UTF-8 for script manipulation.
+ */
+function isTextContentType(contentType) {
+  if (!contentType) return false;
+  const ct = contentType.toLowerCase();
+  if (ct.startsWith('text/')) return true;
+  if (ct.includes('json') || ct.includes('xml') || ct.includes('javascript')
+      || ct.includes('html') || ct.includes('css') || ct.includes('svg')
+      || ct.includes('urlencoded')) return true;
+  return false;
+}
+
+/**
  * Handle interception at the Response stage.
  *
  * Pipeline order:
@@ -199,6 +213,10 @@ function applyHeaderRules(headers, headerRules) {
  *      but DNR response headers are bypassed when Fetch.fulfillRequest is used)
  *   3. Run AdvancedJS onResponse scripts (can see and override header changes)
  *   4. Fulfill or continue the request
+ *
+ * Binary safety: Binary responses (images, fonts, etc.) are kept as raw base64
+ * throughout the pipeline. Only text-based content types are decoded to UTF-8
+ * for script manipulation.
  */
 async function handleResponseStage(tabId, requestId, request, statusCode, responseHeaders, resourceType, rules) {
   console.log(`[ModNetwork] Processing response for: ${request.url}`);
@@ -213,14 +231,27 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
     return;
   }
 
-  const originalBody = bodyResult.base64Encoded
-    ? new TextDecoder('utf-8').decode(Uint8Array.from(atob(bodyResult.body), c => c.charCodeAt(0)))
-    : bodyResult.body;
-
   const headersObj = headersArrayToObject(responseHeaders);
 
+  // Determine content type to decide if we should decode as text
+  const contentType = Object.keys(headersObj).find(k => k.toLowerCase() === 'content-type');
+  const contentTypeValue = contentType ? headersObj[contentType] : '';
+  const isText = isTextContentType(contentTypeValue);
+
+  // Preserve original base64 body for binary-safe fulfillment
+  const rawBase64 = bodyResult.base64Encoded
+    ? bodyResult.body
+    : btoa(bodyResult.body);
+
+  // Only decode to text for text content types; binary stays as base64
+  const textBody = isText
+    ? (bodyResult.base64Encoded
+        ? new TextDecoder('utf-8').decode(Uint8Array.from(atob(bodyResult.body), c => c.charCodeAt(0)))
+        : bodyResult.body)
+    : null;
+
   let modifiedResponse = {
-    body: originalBody,
+    body: textBody,
     headers: headersObj,
     statusCode: statusCode
   };
@@ -248,6 +279,9 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
   // Step 2: Run AdvancedJS onResponse scripts.
   // Scripts see the headers after ModifyHeader rules have been applied,
   // so they can inspect or override them.
+  // Track the body before scripts run to detect actual modifications.
+  const bodyBeforeScripts = modifiedResponse.body;
+
   for (const rule of rules) {
     if (!rule.scripts.onResponse) continue;
 
@@ -268,7 +302,8 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
 
     if (result) {
       const newResponse = result.response || result;
-      if (newResponse.body !== undefined) {
+      // Only mark as modified if the body actually changed
+      if (newResponse.body !== undefined && newResponse.body !== bodyBeforeScripts) {
         modifiedResponse = { ...modifiedResponse, ...newResponse };
         wasModified = true;
         console.log(`[ModNetwork] Response body modified (${modifiedResponse.body.length} chars)`);
@@ -278,16 +313,37 @@ async function handleResponseStage(tabId, requestId, request, statusCode, respon
 
   if (wasModified) {
     // Strip content-length since we may have mutated the body size.
+    // Case-insensitive deletion.
     if (modifiedResponse.headers) {
-      delete modifiedResponse.headers['Content-Length'];
-      delete modifiedResponse.headers['content-length'];
+      for (const key of Object.keys(modifiedResponse.headers)) {
+        if (key.toLowerCase() === 'content-length') {
+          delete modifiedResponse.headers[key];
+        }
+      }
+    }
+
+    // Encode body for fulfillRequest:
+    // - If body was modified by scripts, re-encode the text body
+    // - If only headers changed (body untouched), use original base64
+    let fulfillBody;
+    if (modifiedResponse.body !== bodyBeforeScripts) {
+      // Body was changed by scripts — encode the modified text
+      const encoder = new TextEncoder();
+      const bytes = encoder.encode(modifiedResponse.body || '');
+      fulfillBody = btoa(String.fromCharCode(...bytes));
+    } else if (isText) {
+      // Headers-only change on text content — use original raw base64
+      fulfillBody = rawBase64;
+    } else {
+      // Headers-only change on binary content — use original raw base64
+      fulfillBody = rawBase64;
     }
 
     const fulfillParams = {
       requestId,
       responseCode: modifiedResponse.statusCode || statusCode,
       responseHeaders: headersObjectToArray(modifiedResponse.headers || headersObj),
-      body: btoa(unescape(encodeURIComponent(modifiedResponse.body || '')))
+      body: fulfillBody
     };
 
     await sendCommand(tabId, 'Fetch.fulfillRequest', fulfillParams);
