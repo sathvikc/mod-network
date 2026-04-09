@@ -6,7 +6,7 @@
  */
 
 import { sendCommand } from './debugger-manager.js';
-import { findMatchingRules, findMatchingResponseHeaderRules } from './rule-engine.js';
+import { findMatchingRules, findMatchingRequestHeaderRules, findMatchingResponseHeaderRules } from './rule-engine.js';
 import { executeRequestScript, executeResponseScript } from './script-bridge.js';
 
 /**
@@ -57,14 +57,16 @@ async function handleRequestPaused(source, params) {
     const matchingRules = await findMatchingRules(request.url, resourceType, stage, tabDomains);
     console.log(`[ModNetwork] Matching rules: ${matchingRules.length} for ${request.url} (Host: ${tabDomains.join()})`);
 
-    if (matchingRules.length === 0) {
-      await continueUnmodified(tabId, requestId);
-      return;
-    }
-
     if (stage === 'Request') {
-      await handleRequestStage(tabId, requestId, request, matchingRules);
+      // Always go through handleRequestStage — even with zero AdvJS matches.
+      // This ensures explicit headers are passed in Fetch.continueRequest,
+      // which fixes "Provisional Headers are shown" in DevTools.
+      await handleRequestStage(tabId, requestId, request, matchingRules, resourceType, tabDomains);
     } else {
+      if (matchingRules.length === 0) {
+        await continueUnmodified(tabId, requestId);
+        return;
+      }
       await handleResponseStage(tabId, requestId, request, params.responseStatusCode, params.responseHeaders, resourceType, matchingRules);
     }
   } catch (error) {
@@ -75,16 +77,39 @@ async function handleRequestPaused(source, params) {
 
 /**
  * Handle interception at the Request stage.
+ *
+ * Pipeline order:
+ *   1. Apply ModifyHeader request rules (so they're visible in DevTools
+ *      instead of "Provisional Headers are shown")
+ *   2. Run AdvancedJS onBeforeRequest scripts (see post-ModifyHeader headers)
+ *   3. Always pass explicit headers in Fetch.continueRequest
+ *
+ * Note: DNR also applies ModifyHeader request rules at the network level.
+ * 'set' and 'remove' are idempotent so double-application is harmless.
+ * 'append' operations may result in the value being appended twice.
  */
-async function handleRequestStage(tabId, requestId, request, rules) {
+async function handleRequestStage(tabId, requestId, request, rules, resourceType, tabDomains) {
+  let modifiedHeaders = typeof request.headers === 'object' && !Array.isArray(request.headers)
+    ? { ...request.headers }
+    : headersArrayToObject(request.headers);
+
+  let wasModified = false;
+
+  // Step 1: Apply ModifyHeader request rules.
+  const headerRules = await findMatchingRequestHeaderRules(request.url, resourceType, tabDomains);
+  if (headerRules.length > 0) {
+    applyHeaderRules(modifiedHeaders, headerRules);
+    wasModified = true;
+    console.log(`[ModNetwork] Applied ${headerRules.length} ModifyHeader request rules to ${request.url}`);
+  }
+
+  // Step 2: Run AdvancedJS onBeforeRequest scripts.
   let modifiedRequest = {
     url: request.url,
     method: request.method,
-    headers: request.headers,
+    headers: modifiedHeaders,
     postData: request.postData
   };
-
-  let wasModified = false;
 
   for (const rule of rules) {
     if (!rule.scripts.onBeforeRequest) continue;
@@ -96,7 +121,6 @@ async function handleRequestStage(tabId, requestId, request, rules) {
     );
 
     if (result) {
-      // The script returns context or context.request
       const newRequest = result.request || result;
       if (newRequest.url || newRequest.headers) {
         modifiedRequest = { ...modifiedRequest, ...newRequest };
@@ -105,30 +129,24 @@ async function handleRequestStage(tabId, requestId, request, rules) {
     }
   }
 
+  // Step 3: Always pass explicit headers in Fetch.continueRequest.
+  // This fixes "Provisional Headers are shown" in DevTools by giving
+  // CDP the full header set to report to the DevTools frontend.
+  const continueParams = { requestId };
+  if (modifiedRequest.url !== request.url) continueParams.url = modifiedRequest.url;
+  if (modifiedRequest.method !== request.method) continueParams.method = modifiedRequest.method;
+  if (modifiedRequest.postData !== request.postData) {
+    continueParams.postData = btoa(modifiedRequest.postData || '');
+  }
+
+  const finalHeaders = typeof modifiedRequest.headers === 'object' && !Array.isArray(modifiedRequest.headers)
+    ? modifiedRequest.headers
+    : headersArrayToObject(modifiedRequest.headers);
+  continueParams.headers = headersObjectToArray(finalHeaders);
+
+  await sendCommand(tabId, 'Fetch.continueRequest', continueParams);
   if (wasModified) {
-    const continueParams = { requestId };
-    if (modifiedRequest.url !== request.url) continueParams.url = modifiedRequest.url;
-    if (modifiedRequest.method !== request.method) continueParams.method = modifiedRequest.method;
-    if (modifiedRequest.postData !== request.postData) {
-      continueParams.postData = btoa(modifiedRequest.postData || '');
-    }
-    // Only pass headers if they were structurally altered by the user script.
-    // Sort keys before comparing to avoid false positives from key-order differences
-    // between what CDP returns and what the user script returns.
-    const sortedStringify = obj => JSON.stringify(
-      Object.fromEntries(Object.entries(obj || {}).sort(([a], [b]) => a.localeCompare(b)))
-    );
-    if (sortedStringify(request.headers) !== sortedStringify(modifiedRequest.headers)) {
-      continueParams.headers = headersObjectToArray(
-        typeof modifiedRequest.headers === 'object' && !Array.isArray(modifiedRequest.headers)
-          ? modifiedRequest.headers
-          : headersArrayToObject(modifiedRequest.headers)
-      );
-    }
-    await sendCommand(tabId, 'Fetch.continueRequest', continueParams);
     console.log(`[ModNetwork] ✅ Request modified: ${request.url}`);
-  } else {
-    await sendCommand(tabId, 'Fetch.continueRequest', { requestId });
   }
 }
 
@@ -149,10 +167,15 @@ function applyHeaderRules(headers, headerRules) {
         }
       }
     } else if (op === 'append') {
-      // Find existing header (case-insensitive) and append, or create new
+      // Find existing header (case-insensitive) and append, or create new.
+      // Skip if the value is already present (guards against double-apply
+      // when both CDP and DNR process the same append rule).
       const existingKey = Object.keys(headers).find(k => k.toLowerCase() === rule.name.toLowerCase());
       if (existingKey) {
-        headers[existingKey] = headers[existingKey] + ', ' + rule.value;
+        const parts = headers[existingKey].split(',').map(s => s.trim());
+        if (!parts.includes(rule.value.trim())) {
+          headers[existingKey] = headers[existingKey] + ', ' + rule.value;
+        }
       } else {
         headers[rule.name] = rule.value;
       }

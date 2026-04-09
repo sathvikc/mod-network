@@ -233,9 +233,10 @@ async function generateFetchPatterns(tabId = null) {
       const typesToIterate = resourceTypes.length > 0 ? resourceTypes : [undefined];
 
       for (const resType of typesToIterate) {
-        if (wantsRequest) {
-          patterns.push({ urlPattern, requestStage: 'Request', ...(resType ? { resourceType: resType } : {}) });
-        }
+        // Always intercept at Request stage so handleRequestStage can pass
+        // explicit headers in Fetch.continueRequest — fixes "Provisional
+        // Headers are shown" in DevTools when the debugger is attached.
+        patterns.push({ urlPattern, requestStage: 'Request', ...(resType ? { resourceType: resType } : {}) });
         if (wantsResponse) {
           patterns.push({ urlPattern, requestStage: 'Response', ...(resType ? { resourceType: resType } : {}) });
         }
@@ -367,6 +368,45 @@ async function _doSyncDNRRules() {
 }
 
 /**
+ * Find all active ModifyHeader request-stage headers that match this URL.
+ * Used by the interceptor to manually apply request header rules when the
+ * debugger is attached, so headers appear in DevTools instead of
+ * "Provisional Headers are shown".
+ *
+ * Note: DNR also applies these rules at the network level. 'set' and 'remove'
+ * are idempotent so double-application is harmless. 'append' may double-apply.
+ *
+ * Returns a flat array of { name, value, operation } header modifications.
+ */
+async function findMatchingRequestHeaderRules(url, resourceType, tabDomains = []) {
+  const globalEnabled = await getGlobalEnabled();
+  if (!globalEnabled) return [];
+
+  const [profiles, activeProfileId] = await Promise.all([getProfiles(), getActiveProfileId()]);
+  const headers = [];
+
+  for (const [i, profile] of profiles.entries()) {
+    if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
+
+    for (const mod of profile.rules) {
+      if (!mod.enabled || mod.type !== 'ModifyHeader') continue;
+      if (!mod.headers || mod.headers.length === 0) continue;
+
+      const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
+      if (!matchesUrl(url, matchObj, tabDomains) || !matchesResourceType(resourceType, matchObj.resourceTypes)) continue;
+
+      for (const h of mod.headers) {
+        if (h.stage === 'Request') {
+          headers.push({ name: h.name, value: h.value, operation: h.operation });
+        }
+      }
+    }
+  }
+
+  return headers;
+}
+
+/**
  * Find all active ModifyHeader response-stage headers that match this URL.
  * Used by the interceptor to manually apply response header rules when
  * Fetch.fulfillRequest would otherwise bypass DNR response header processing.
@@ -406,6 +446,7 @@ export {
   matchesUrl,
   matchesResourceType,
   findMatchingRules,
+  findMatchingRequestHeaderRules,
   findMatchingResponseHeaderRules,
   hasAdvancedJSRuleForUrl,
   isAnyRuleActiveForUrl,
