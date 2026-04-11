@@ -31,6 +31,14 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   }
 });
 
+// Diagnostic: log every DNR rule match. Requires declarativeNetRequestFeedback
+// permission. Only fires for unpacked/dev extensions.
+if (chrome.declarativeNetRequest.onRuleMatchedDebug) {
+  chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
+    console.log('[ModNetwork][DNR-match] ' + JSON.stringify(info));
+  });
+}
+
 chrome.debugger.onDetach.addListener((source, reason) => {
   handleDetach(source, reason);
 });
@@ -106,7 +114,12 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
  */
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
   if (namespace === 'local' && (changes.profiles || changes.global_enabled || changes.active_profile_id)) {
-    await reconcile();
+    console.log('[ModNetwork] storage changed, triggering reconcile. keys:', Object.keys(changes));
+    try {
+      await reconcile();
+    } catch (e) {
+      console.error('[ModNetwork] reconcile (from storage change) failed:', e);
+    }
   }
 });
 

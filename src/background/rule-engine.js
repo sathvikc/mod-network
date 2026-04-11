@@ -276,14 +276,23 @@ async function _doSyncDNRRules() {
     getGlobalEnabled(), getProfiles(), getActiveProfileId()
   ]);
 
-  // Clean up any stray dynamic rules from older versions
-  const existingDynamicRules = await chrome.declarativeNetRequest.getDynamicRules();
-  if (existingDynamicRules.length > 0) {
-    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: existingDynamicRules.map(r => r.id) });
+  console.log('[ModNetwork][DNR] ── syncDNRRules START ─────────────────');
+  console.log('[ModNetwork][DNR] globalEnabled:', globalEnabled, '| activeProfileId:', activeProfileId);
+  console.log('[ModNetwork][DNR] profiles (raw):\n' + JSON.stringify(profiles, null, 2));
+
+  // Clean up any stray session rules from older versions. We use dynamic
+  // rules (not session rules) because Chrome DevTools' Network panel only
+  // surfaces modifications made via dynamic or static rulesets — session-rule
+  // modifications are applied on the wire but not rendered in the UI, which
+  // looks like a bug to users comparing against extensions like ModHeader.
+  const existingSessionRules = await chrome.declarativeNetRequest.getSessionRules();
+  if (existingSessionRules.length > 0) {
+    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: existingSessionRules.map(r => r.id) });
   }
 
-  const existingSessionRules = await chrome.declarativeNetRequest.getSessionRules();
-  const removeRuleIds = existingSessionRules.map(r => r.id);
+  const existingDynamicRules = await chrome.declarativeNetRequest.getDynamicRules();
+  const removeRuleIds = existingDynamicRules.map(r => r.id);
+  console.log('[ModNetwork][DNR] existing dynamic rules to remove:', removeRuleIds);
 
   const addRules = [];
   let dnrId = 1;
@@ -295,9 +304,12 @@ async function _doSyncDNRRules() {
 
   if (globalEnabled) {
     for (const [i, profile] of profiles.entries()) {
-      if (!isProfileActive(profile, activeProfileId, i === 0)) continue;
+      const active = isProfileActive(profile, activeProfileId, i === 0);
+      console.log(`[ModNetwork][DNR] profile[${i}] "${profile.name}" id=${profile.id} enabled=${profile.enabled} pinned=${!!profile.pinned} → active=${active}`);
+      if (!active) continue;
 
       for (const mod of profile.rules) {
+        console.log(`[ModNetwork][DNR]   mod "${mod.name}" type=${mod.type} enabled=${mod.enabled} headers=${JSON.stringify(mod.headers)}`);
         if (!mod.enabled || mod.type === 'AdvancedJS') continue;
 
         const matchObj = mod.match || { type: 'wildcard', urlPattern: '*://*/*', resourceTypes: [] };
@@ -338,12 +350,21 @@ async function _doSyncDNRRules() {
           const requestHeaders = [];
           const responseHeaders = [];
 
-          mod.headers.forEach(h => {
-            const headerRule = { header: h.name, operation: h.operation };
+          mod.headers.forEach((h, idx) => {
+            // Skip headers with empty/missing names — Chrome DNR rejects the
+            // entire updateSessionRules batch if any rule has an invalid header
+            // name, which would silently disable all other rules too.
+            const name = (h.name || '').trim();
+            if (!name) {
+              console.warn(`[ModNetwork][DNR]     ⚠️ skipping header[${idx}] with empty name in mod "${mod.name}":`, JSON.stringify(h));
+              return;
+            }
+            const headerRule = { header: name, operation: h.operation };
             if (h.operation !== 'remove') headerRule.value = h.value;
             if (h.stage === 'Request') requestHeaders.push(headerRule);
             else responseHeaders.push(headerRule);
           });
+          console.log(`[ModNetwork][DNR]     → compiled requestHeaders=${JSON.stringify(requestHeaders)} responseHeaders=${JSON.stringify(responseHeaders)}`);
 
           if (requestHeaders.length > 0 || responseHeaders.length > 0) {
             const action = { type: 'modifyHeaders' };
@@ -360,11 +381,18 @@ async function _doSyncDNRRules() {
     }
   }
 
-  await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds, addRules });
-  console.log(`[ModNetwork] DNR Engine Synced: Removed ${removeRuleIds.length}, Added ${addRules.length} rules (global scope)`);
-  if (addRules.length > 0) {
-    console.log(`[ModNetwork] Active DNR Compilation: `, addRules);
+  console.log(`[ModNetwork][DNR] final addRules (${addRules.length}):\n` + JSON.stringify(addRules, null, 2));
+
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds, addRules });
+    console.log(`[ModNetwork][DNR] ✅ synced: removed ${removeRuleIds.length}, added ${addRules.length}`);
+  } catch (err) {
+    console.error(`[ModNetwork][DNR] ❌ updateDynamicRules FAILED: ${err.message}`);
+    console.error('[ModNetwork][DNR] offending payload:\n' + JSON.stringify({ removeRuleIds, addRules }, null, 2));
+    // Don't re-throw — a bad rule in the batch shouldn't crash reconcile() and
+    // wipe other state. The error is logged for the user to diagnose.
   }
+  console.log('[ModNetwork][DNR] ── syncDNRRules END ───────────────────');
 }
 
 /**
